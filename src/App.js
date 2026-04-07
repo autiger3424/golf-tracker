@@ -104,6 +104,30 @@ function saveRoundsToStorage(rs) {
 }
 
 // ============================================================
+// IMAGE COMPRESSION — resize to ≤1600px and re-encode as JPEG
+// keeps upload under the 10 MB serverless body limit
+// ============================================================
+function compressImage(file, maxDim = 1600, quality = 0.82) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+      const w = Math.round(img.width * scale);
+      const h = Math.round(img.height * scale);
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(url);
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not load image')); };
+    img.src = url;
+  });
+}
+
+// ============================================================
 // GEMINI VISION — calls our own serverless proxy (key stays server-side)
 // ============================================================
 async function scanScorecardWithGemini(base64Image, mediaType) {
@@ -113,7 +137,14 @@ async function scanScorecardWithGemini(base64Image, mediaType) {
     body: JSON.stringify({ base64Image, mediaType })
   });
 
-  const data = await response.json();
+  // Guard against non-JSON responses (e.g. Vercel HTML error pages)
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error(`Server error ${response.status} — image may be too large or server crashed`);
+  }
+
   if (!response.ok) throw new Error(data?.error || `Server error ${response.status}`);
   return data;
 }
@@ -257,33 +288,41 @@ function SetupScreen({ onStart }) {
     c.location.toLowerCase().includes(courseSearch.toLowerCase())
   );
 
-  const handleScan = (e) => {
+  const handleScan = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async (ev) => {
-      const base64 = ev.target.result.split(',')[1];
-      const mediaType = file.type || 'image/jpeg';
-      setScanStatus('loading');
-      setScanMsg('Analyzing scorecard with Gemini AI…');
-      setSelectedCourse(null);
-      setManualCourseName('');
-      try {
-        const result = await scanScorecardWithGemini(base64, mediaType);
-        setScannedTees(result);
-        setScanStatus('success');
-        setScanMsg(
-          (result.courseName ? result.courseName + ' — ' : '') +
-          (result.tees?.length || 0) + ' tee(s) found: ' +
-          (result.tees?.map(t => t.name).join(', ') || '')
-        );
-      } catch (err) {
-        setScanStatus('error');
-        setScanMsg('Scan failed: ' + err.message);
-      }
-    };
-    reader.readAsDataURL(file);
     e.target.value = '';
+
+    setScanStatus('loading');
+    setScanMsg('Compressing image…');
+    setSelectedCourse(null);
+    setManualCourseName('');
+
+    let dataUrl;
+    try {
+      dataUrl = await compressImage(file);
+    } catch (err) {
+      setScanStatus('error');
+      setScanMsg('Could not read image: ' + err.message);
+      return;
+    }
+
+    const base64 = dataUrl.split(',')[1];
+    setScanMsg('Analyzing scorecard with Gemini AI…');
+
+    try {
+      const result = await scanScorecardWithGemini(base64, 'image/jpeg');
+      setScannedTees(result);
+      setScanStatus('success');
+      setScanMsg(
+        (result.courseName ? result.courseName + ' — ' : '') +
+        (result.tees?.length || 0) + ' tee(s) found: ' +
+        (result.tees?.map(t => t.name).join(', ') || '')
+      );
+    } catch (err) {
+      setScanStatus('error');
+      setScanMsg('Scan failed: ' + err.message);
+    }
   };
 
   const isManualMode = !selectedCourse && !scannedTees?.tees?.length && manualCourseName.trim();
