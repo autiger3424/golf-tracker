@@ -1,6 +1,7 @@
 import React, { useCallback } from 'react';
 import './App.css';
 import { COURSES } from './courses';
+import { GEMINI_API_KEY } from './config';
 
 // ============================================================
 // HELPERS
@@ -104,50 +105,51 @@ function saveRoundsToStorage(rs) {
 }
 
 // ============================================================
-// CLAUDE VISION API
+// GEMINI VISION API
 // ============================================================
-async function scanScorecardWithClaude(apiKey, base64Image, mediaType) {
-  const prompt = `Analyze this golf scorecard image and extract ALL tee box information.
+async function scanScorecardWithGemini(base64Image, mediaType) {
+  const prompt = `Read this golf scorecard. Return ONLY valid JSON with no other text:
+{"courseName": "string", "tees": [{"name": "string", "color": "string", "holes": [{"hole": 1, "par": 4, "yards": 400}]}]}
+Include every tee box visible. Each tee must have exactly 18 holes. color should be one of: black/blue/white/red/gold/green/silver.`;
 
-Return ONLY a raw JSON object (no markdown, no explanation) in this exact format:
-{"courseName":"Course Name","tees":[{"name":"Black","color":"black","rating":76.5,"slope":148,"holes":[{"number":1,"par":4,"yards":450},{"number":2,"par":5,"yards":520},...all 18 holes]}]}
-
-Rules:
-- Include every tee box visible
-- All 18 holes for each tee
-- color field: black/blue/white/red/gold/green/silver (lowercase)
-- Omit rating/slope if not visible
-- Return ONLY the raw JSON`;
-
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json',
-      'anthropic-dangerous-direct-browser-access': 'true'
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 4000,
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Image } },
-          { type: 'text', text: prompt }
-        ]
-      }]
-    })
-  });
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [
+          { text: prompt },
+          { inlineData: { mimeType: mediaType, data: base64Image } }
+        ]}],
+        generationConfig: { temperature: 0.1, maxOutputTokens: 4000 }
+      })
+    }
+  );
 
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
-    throw new Error(err?.error?.message || `API error ${response.status}`);
+    throw new Error(err?.error?.message || `Gemini API error ${response.status}`);
   }
 
   const data = await response.json();
-  const text = (data.content?.[0]?.text || '').replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-  return JSON.parse(text);
+  const raw = (data.candidates?.[0]?.content?.parts?.[0]?.text || '')
+    .replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+  const parsed = JSON.parse(raw);
+
+  // Normalize: prompt returns "hole" field; app expects "number"
+  if (parsed.tees) {
+    parsed.tees = parsed.tees.map(tee => ({
+      name: tee.name || 'Unknown',
+      color: tee.color || 'white',
+      holes: (tee.holes || []).map((h, i) => ({
+        number: h.hole || h.number || (i + 1),
+        par: h.par || 4,
+        yards: h.yards || 0
+      }))
+    }));
+  }
+  return parsed;
 }
 
 // ============================================================
@@ -272,7 +274,7 @@ function HoleCard({ hole, onChange, isManual }) {
 // ============================================================
 // SETUP SCREEN
 // ============================================================
-function SetupScreen({ onStart, apiKey, setApiKey }) {
+function SetupScreen({ onStart }) {
   const [playerName, setPlayerName] = React.useState(() => localStorage.getItem('golf_player_name') || '');
   const [roundType, setRoundType] = React.useState('practice');
   const [courseSearch, setCourseSearch] = React.useState('');
@@ -292,23 +294,23 @@ function SetupScreen({ onStart, apiKey, setApiKey }) {
   const handleScan = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!apiKey.trim()) {
-      setScanStatus('error');
-      setScanMsg('Please enter your Anthropic API key before scanning.');
-      return;
-    }
     const reader = new FileReader();
     reader.onload = async (ev) => {
       const base64 = ev.target.result.split(',')[1];
       const mediaType = file.type || 'image/jpeg';
       setScanStatus('loading');
-      setScanMsg('Analyzing scorecard with Claude AI…');
+      setScanMsg('Analyzing scorecard with Gemini AI…');
       setSelectedCourse(null);
+      setManualCourseName('');
       try {
-        const result = await scanScorecardWithClaude(apiKey, base64, mediaType);
+        const result = await scanScorecardWithGemini(base64, mediaType);
         setScannedTees(result);
         setScanStatus('success');
-        setScanMsg('Found ' + (result.tees?.length || 0) + ' tee(s): ' + (result.tees?.map(t => t.name).join(', ') || ''));
+        setScanMsg(
+          (result.courseName ? result.courseName + ' — ' : '') +
+          (result.tees?.length || 0) + ' tee(s) found: ' +
+          (result.tees?.map(t => t.name).join(', ') || '')
+        );
       } catch (err) {
         setScanStatus('error');
         setScanMsg('Scan failed: ' + err.message);
@@ -368,29 +370,29 @@ function SetupScreen({ onStart, apiKey, setApiKey }) {
       </div>
 
       <div className="card" style={{ marginBottom: 12 }}>
-        <div className="card-title">Claude AI — Scorecard Scanner</div>
-        <div className="form-group" style={{ marginBottom: 8 }}>
-          <label className="form-label">Anthropic API Key</label>
-          <input className="form-input" type="password" value={apiKey}
-            onChange={e => { setApiKey(e.target.value); localStorage.setItem('golf_api_key', e.target.value); }}
-            placeholder="sk-ant-..." />
-        </div>
-        <button className="btn btn-secondary" onClick={() => fileRef.current?.click()}>
-          📷 Scan Scorecard Photo
+        <div className="card-title">📷 Scan Scorecard — Gemini AI</div>
+        <p style={{ fontSize: '0.82rem', color: 'var(--text-dim)', marginBottom: 10 }}>
+          Take a photo or upload a scorecard image and AI will extract all tee boxes and hole data automatically.
+        </p>
+        <button className="btn btn-primary" onClick={() => fileRef.current?.click()}
+          disabled={scanStatus === 'loading'}>
+          {scanStatus === 'loading' ? '⏳ Scanning…' : '📷 Choose Photo or Take Picture'}
         </button>
         <input ref={fileRef} type="file" accept="image/*"
           style={{ display: 'none' }} onChange={handleScan} />
         {scanStatus && (
-          <div className={`scan-status ${scanStatus}`}>
+          <div className={`scan-status ${scanStatus}`} style={{ marginTop: 10 }}>
             {scanStatus === 'loading' && <div className="spinner" />}
-            {scanStatus === 'success' && '✓ '}
-            {scanStatus === 'error' && '✗ '}
+            {scanStatus === 'success' && <span style={{ marginRight: 4 }}>✓</span>}
+            {scanStatus === 'error' && <span style={{ marginRight: 4 }}>✗</span>}
             <span>{scanMsg}</span>
           </div>
         )}
-        <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 8 }}>
-          Key stored in localStorage only. Sent only to Anthropic API.
-        </p>
+        {scannedTees?.courseName && (
+          <div style={{ marginTop: 8, fontSize: '0.85rem', color: 'var(--accent)', fontWeight: 600 }}>
+            📍 {scannedTees.courseName}
+          </div>
+        )}
       </div>
 
       <div className="card" style={{ marginBottom: 12 }}>
@@ -805,7 +807,6 @@ function HistoryScreen({ rounds, onViewRound }) {
 // ============================================================
 export default function App() {
   const [screen, setScreen] = React.useState('setup');
-  const [apiKey, setApiKey] = React.useState(() => localStorage.getItem('golf_api_key') || '');
   const [rounds, setRounds] = React.useState(() => {
     try { return JSON.parse(localStorage.getItem('golf_rounds') || '[]'); } catch { return []; }
   });
@@ -924,7 +925,7 @@ export default function App() {
       </div>
 
       {screen === 'setup' && (
-        <SetupScreen onStart={handleSetupStart} apiKey={apiKey} setApiKey={setApiKey} />
+        <SetupScreen onStart={handleSetupStart} />
       )}
       {screen === 'teeSelect' && pendingSetup && (
         <TeeSelectScreen
