@@ -283,9 +283,6 @@ function SetupScreen({ onStart, apiKey, setApiKey }) {
   const fileRef = React.useRef(null);
   const [manualCourseName, setManualCourseName] = React.useState('');
   const [manualTeeName, setManualTeeName] = React.useState('');
-  const [manualRating, setManualRating] = React.useState('');
-  const [manualSlope, setManualSlope] = React.useState('');
-  const [manualActive, setManualActive] = React.useState(false);
 
   const filtered = COURSES.filter(c =>
     c.name.toLowerCase().includes(courseSearch.toLowerCase()) ||
@@ -307,7 +304,6 @@ function SetupScreen({ onStart, apiKey, setApiKey }) {
       setScanStatus('loading');
       setScanMsg('Analyzing scorecard with Claude AI…');
       setSelectedCourse(null);
-      setManualActive(false);
       try {
         const result = await scanScorecardWithClaude(apiKey, base64, mediaType);
         setScannedTees(result);
@@ -322,33 +318,30 @@ function SetupScreen({ onStart, apiKey, setApiKey }) {
     e.target.value = '';
   };
 
-  const canStart = playerName.trim() && (selectedCourse || scannedTees?.tees?.length || manualActive);
+  const isManualMode = !selectedCourse && !scannedTees?.tees?.length && manualCourseName.trim();
+  const canStart = !!(selectedCourse || scannedTees?.tees?.length || manualCourseName.trim());
 
   const handleStart = () => {
     localStorage.setItem('golf_player_name', playerName.trim());
-    const course = selectedCourse
-      ? { id: selectedCourse.id, name: selectedCourse.name, location: selectedCourse.location, tees: selectedCourse.tees }
-      : { id: 'scanned', name: scannedTees.courseName || 'Scanned Course', location: '', tees: scannedTees.tees };
-    onStart({ playerName: playerName.trim(), roundType, course });
-  };
-
-  const handleUseManual = () => {
-    if (!playerName.trim()) return;
-    const tee = {
-      name: manualTeeName.trim() || 'Manual',
-      color: 'white',
-      ...(manualRating ? { rating: parseFloat(manualRating) } : {}),
-      ...(manualSlope ? { slope: parseInt(manualSlope) } : {}),
-      holes: createBlankHoles(),
-    };
-    const course = {
-      id: 'manual',
-      name: manualCourseName.trim() || 'My Course',
-      location: '',
-      tees: [tee],
-    };
-    localStorage.setItem('golf_player_name', playerName.trim());
-    onStart({ playerName: playerName.trim(), roundType, course, selectedTee: tee });
+    if (isManualMode) {
+      const tee = {
+        name: manualTeeName.trim() || 'Manual',
+        color: 'white',
+        holes: createBlankHoles(),
+      };
+      const course = {
+        id: 'manual',
+        name: manualCourseName.trim(),
+        location: '',
+        tees: [tee],
+      };
+      onStart({ playerName: playerName.trim(), roundType, course, selectedTee: tee });
+    } else {
+      const course = selectedCourse
+        ? { id: selectedCourse.id, name: selectedCourse.name, location: selectedCourse.location, tees: selectedCourse.tees }
+        : { id: 'scanned', name: scannedTees.courseName || 'Scanned Course', location: '', tees: scannedTees.tees };
+      onStart({ playerName: playerName.trim(), roundType, course });
+    }
   };
 
   return (
@@ -385,7 +378,7 @@ function SetupScreen({ onStart, apiKey, setApiKey }) {
         <button className="btn btn-secondary" onClick={() => fileRef.current?.click()}>
           📷 Scan Scorecard Photo
         </button>
-        <input ref={fileRef} type="file" accept="image/*" capture="environment"
+        <input ref={fileRef} type="file" accept="image/*"
           style={{ display: 'none' }} onChange={handleScan} />
         {scanStatus && (
           <div className={`scan-status ${scanStatus}`}>
@@ -405,39 +398,18 @@ function SetupScreen({ onStart, apiKey, setApiKey }) {
         <div className="form-group" style={{ marginBottom: 10 }}>
           <label className="form-label">Course Name</label>
           <input className="form-input" type="text" value={manualCourseName}
-            onChange={e => { setManualCourseName(e.target.value); setManualActive(false); }}
+            onChange={e => { setManualCourseName(e.target.value); setSelectedCourse(null); setScannedTees(null); setScanStatus(null); }}
             placeholder="e.g. Pebble Beach Golf Links" />
         </div>
-        <div className="form-group" style={{ marginBottom: 10 }}>
+        <div className="form-group" style={{ marginBottom: 0 }}>
           <label className="form-label">Tee Name</label>
           <input className="form-input" type="text" value={manualTeeName}
-            onChange={e => { setManualTeeName(e.target.value); setManualActive(false); }}
+            onChange={e => setManualTeeName(e.target.value)}
             placeholder="e.g. Blue, White, Red" />
         </div>
-        <div className="stat-row" style={{ marginBottom: 10 }}>
-          <div className="stat-item">
-            <label className="form-label">Course Rating</label>
-            <input className="form-input" type="number" value={manualRating}
-              onChange={e => { setManualRating(e.target.value); setManualActive(false); }}
-              placeholder="72.4" step="0.1" min="60" max="85" />
-          </div>
-          <div className="stat-item">
-            <label className="form-label">Slope</label>
-            <input className="form-input" type="number" value={manualSlope}
-              onChange={e => { setManualSlope(e.target.value); setManualActive(false); }}
-              placeholder="130" min="55" max="155" />
-          </div>
-        </div>
-        <button
-          className={`btn${manualActive ? ' btn-primary' : ' btn-secondary'}`}
-          disabled={!playerName.trim()}
-          onClick={handleUseManual}
-        >
-          {manualActive ? '✓ Manual Entry Selected' : '✏️ Use Manual Entry'}
-        </button>
-        {manualActive && (
-          <p style={{ fontSize: '0.78rem', color: 'var(--accent)', marginTop: 8 }}>
-            You'll enter par and yardage per hole on the round screen.
+        {manualCourseName.trim() && (
+          <p style={{ fontSize: '0.78rem', color: 'var(--accent)', marginTop: 10 }}>
+            ✓ You'll enter par and yardage per hole on the round screen.
           </p>
         )}
       </div>
@@ -451,7 +423,7 @@ function SetupScreen({ onStart, apiKey, setApiKey }) {
           {filtered.map(c => (
             <div key={c.id}
               className={`course-item${selectedCourse?.id === c.id ? ' selected' : ''}`}
-              onClick={() => { setSelectedCourse(c); setScannedTees(null); setScanStatus(null); setManualActive(false); }}>
+              onClick={() => { setSelectedCourse(c); setScannedTees(null); setScanStatus(null); }}>
               <div>
                 <div className="course-item-name">{c.name}</div>
                 <div className="course-item-loc">{c.location}</div>
@@ -463,7 +435,7 @@ function SetupScreen({ onStart, apiKey, setApiKey }) {
       </div>
 
       <button className="btn btn-primary" disabled={!canStart} onClick={handleStart} style={{ marginTop: 8 }}>
-        Select Tee Box →
+        {isManualMode ? 'Start Round →' : 'Select Tee Box →'}
       </button>
     </div>
   );
@@ -498,7 +470,6 @@ function TeeSelectScreen({ course, onSelectTee, onBack }) {
             </div>
             <div style={{ display: 'flex', gap: 16, marginTop: 6 }}>
               <span className="tee-yardage">{totalYards(tee).toLocaleString()} yds</span>
-              {tee.rating && <span className="tee-stats">Rating {tee.rating} / Slope {tee.slope}</span>}
             </div>
             <div style={{ marginTop: 6 }}>
               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
