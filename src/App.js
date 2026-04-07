@@ -87,6 +87,14 @@ function createHolesFromTee(tee) {
   }));
 }
 
+function createBlankHoles() {
+  return Array.from({ length: 18 }, (_, i) => ({
+    number: i + 1, par: 4, yards: 0,
+    score: '', putts: '', fairwayHit: null, gir: false,
+    fairwayBunker: false, greensideBunker: false, ob: false, water: false, notes: ''
+  }));
+}
+
 function formatDate(iso) {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
@@ -145,7 +153,7 @@ Rules:
 // ============================================================
 // HOLE CARD
 // ============================================================
-function HoleCard({ hole, onChange }) {
+function HoleCard({ hole, onChange, isManual }) {
   const [expanded, setExpanded] = React.useState(false);
   const scoreClass = holeScoreClass(hole.score, hole.par);
   const diff = hole.score !== '' && hole.score !== null ? parseInt(hole.score) - hole.par : null;
@@ -174,7 +182,23 @@ function HoleCard({ hole, onChange }) {
 
       {expanded && (
         <div className="hole-card-body">
-          <div className="stat-row">
+          {isManual && (
+            <div className="stat-row" style={{ marginTop: 12 }}>
+              <div className="stat-item">
+                <label>Par</label>
+                <input type="number" className="score-input" value={hole.par}
+                  min={3} max={6} placeholder="4"
+                  onChange={e => onChange({ par: parseInt(e.target.value) || 4 })} />
+              </div>
+              <div className="stat-item">
+                <label>Yards</label>
+                <input type="number" className="score-input" value={hole.yards || ''}
+                  min={0} max={999} placeholder="0"
+                  onChange={e => onChange({ yards: parseInt(e.target.value) || 0 })} />
+              </div>
+            </div>
+          )}
+          <div className="stat-row" style={{ marginTop: 12 }}>
             <div className="stat-item">
               <label>Score</label>
               <input type="number" className="score-input" value={hole.score}
@@ -257,6 +281,11 @@ function SetupScreen({ onStart, apiKey, setApiKey }) {
   const [scanMsg, setScanMsg] = React.useState('');
   const [scannedTees, setScannedTees] = React.useState(null);
   const fileRef = React.useRef(null);
+  const [manualCourseName, setManualCourseName] = React.useState('');
+  const [manualTeeName, setManualTeeName] = React.useState('');
+  const [manualRating, setManualRating] = React.useState('');
+  const [manualSlope, setManualSlope] = React.useState('');
+  const [manualActive, setManualActive] = React.useState(false);
 
   const filtered = COURSES.filter(c =>
     c.name.toLowerCase().includes(courseSearch.toLowerCase()) ||
@@ -278,6 +307,7 @@ function SetupScreen({ onStart, apiKey, setApiKey }) {
       setScanStatus('loading');
       setScanMsg('Analyzing scorecard with Claude AI…');
       setSelectedCourse(null);
+      setManualActive(false);
       try {
         const result = await scanScorecardWithClaude(apiKey, base64, mediaType);
         setScannedTees(result);
@@ -292,7 +322,7 @@ function SetupScreen({ onStart, apiKey, setApiKey }) {
     e.target.value = '';
   };
 
-  const canStart = playerName.trim() && (selectedCourse || scannedTees?.tees?.length);
+  const canStart = playerName.trim() && (selectedCourse || scannedTees?.tees?.length || manualActive);
 
   const handleStart = () => {
     localStorage.setItem('golf_player_name', playerName.trim());
@@ -300,6 +330,25 @@ function SetupScreen({ onStart, apiKey, setApiKey }) {
       ? { id: selectedCourse.id, name: selectedCourse.name, location: selectedCourse.location, tees: selectedCourse.tees }
       : { id: 'scanned', name: scannedTees.courseName || 'Scanned Course', location: '', tees: scannedTees.tees };
     onStart({ playerName: playerName.trim(), roundType, course });
+  };
+
+  const handleUseManual = () => {
+    if (!playerName.trim()) return;
+    const tee = {
+      name: manualTeeName.trim() || 'Manual',
+      color: 'white',
+      ...(manualRating ? { rating: parseFloat(manualRating) } : {}),
+      ...(manualSlope ? { slope: parseInt(manualSlope) } : {}),
+      holes: createBlankHoles(),
+    };
+    const course = {
+      id: 'manual',
+      name: manualCourseName.trim() || 'My Course',
+      location: '',
+      tees: [tee],
+    };
+    localStorage.setItem('golf_player_name', playerName.trim());
+    onStart({ playerName: playerName.trim(), roundType, course, selectedTee: tee });
   };
 
   return (
@@ -351,6 +400,48 @@ function SetupScreen({ onStart, apiKey, setApiKey }) {
         </p>
       </div>
 
+      <div className="card" style={{ marginBottom: 12 }}>
+        <div className="card-title">Or Enter Course Manually</div>
+        <div className="form-group" style={{ marginBottom: 10 }}>
+          <label className="form-label">Course Name</label>
+          <input className="form-input" type="text" value={manualCourseName}
+            onChange={e => { setManualCourseName(e.target.value); setManualActive(false); }}
+            placeholder="e.g. Pebble Beach Golf Links" />
+        </div>
+        <div className="form-group" style={{ marginBottom: 10 }}>
+          <label className="form-label">Tee Name</label>
+          <input className="form-input" type="text" value={manualTeeName}
+            onChange={e => { setManualTeeName(e.target.value); setManualActive(false); }}
+            placeholder="e.g. Blue, White, Red" />
+        </div>
+        <div className="stat-row" style={{ marginBottom: 10 }}>
+          <div className="stat-item">
+            <label className="form-label">Course Rating</label>
+            <input className="form-input" type="number" value={manualRating}
+              onChange={e => { setManualRating(e.target.value); setManualActive(false); }}
+              placeholder="72.4" step="0.1" min="60" max="85" />
+          </div>
+          <div className="stat-item">
+            <label className="form-label">Slope</label>
+            <input className="form-input" type="number" value={manualSlope}
+              onChange={e => { setManualSlope(e.target.value); setManualActive(false); }}
+              placeholder="130" min="55" max="155" />
+          </div>
+        </div>
+        <button
+          className={`btn${manualActive ? ' btn-primary' : ' btn-secondary'}`}
+          disabled={!playerName.trim()}
+          onClick={handleUseManual}
+        >
+          {manualActive ? '✓ Manual Entry Selected' : '✏️ Use Manual Entry'}
+        </button>
+        {manualActive && (
+          <p style={{ fontSize: '0.78rem', color: 'var(--accent)', marginTop: 8 }}>
+            You'll enter par and yardage per hole on the round screen.
+          </p>
+        )}
+      </div>
+
       <div className="card">
         <div className="card-title">Or Choose a Built-in Course</div>
         <input className="form-input" style={{ marginBottom: 8 }} type="text"
@@ -360,7 +451,7 @@ function SetupScreen({ onStart, apiKey, setApiKey }) {
           {filtered.map(c => (
             <div key={c.id}
               className={`course-item${selectedCourse?.id === c.id ? ' selected' : ''}`}
-              onClick={() => { setSelectedCourse(c); setScannedTees(null); setScanStatus(null); }}>
+              onClick={() => { setSelectedCourse(c); setScannedTees(null); setScanStatus(null); setManualActive(false); }}>
               <div>
                 <div className="course-item-name">{c.name}</div>
                 <div className="course-item-loc">{c.location}</div>
@@ -429,7 +520,7 @@ function TeeSelectScreen({ course, onSelectTee, onBack }) {
 // ============================================================
 // ROUND SCREEN
 // ============================================================
-function RoundScreen({ round, onUpdateHole, onFinish }) {
+function RoundScreen({ round, onUpdateHole, onFinish, isManual }) {
   const stats = calcStats(round.holes);
 
   return (
@@ -462,7 +553,7 @@ function RoundScreen({ round, onUpdateHole, onFinish }) {
 
       <div className="screen" style={{ paddingTop: 12 }}>
         {round.holes.map((hole, i) => (
-          <HoleCard key={hole.number} hole={hole}
+          <HoleCard key={hole.number} hole={hole} isManual={isManual}
             onChange={(updates) => onUpdateHole(i, updates)} />
         ))}
         <button className="btn btn-gold" style={{ marginTop: 8 }} onClick={onFinish}>
@@ -759,7 +850,26 @@ export default function App() {
 
   const handleSetupStart = (setup) => {
     setPendingSetup(setup);
-    setScreen('teeSelect');
+    if (setup.selectedTee) {
+      // Manual entry: skip tee selection, go straight to round
+      const round = {
+        id: genId(),
+        date: new Date().toISOString(),
+        playerName: setup.playerName,
+        roundType: setup.roundType,
+        courseId: setup.course.id,
+        courseName: setup.course.name,
+        tee: setup.selectedTee.name,
+        teeColor: setup.selectedTee.color,
+        isManual: true,
+        holes: createHolesFromTee(setup.selectedTee),
+      };
+      setCurrentRound(round);
+      setRoundSaved(false);
+      setScreen('round');
+    } else {
+      setScreen('teeSelect');
+    }
   };
 
   const handleTeeSelect = (tee) => {
@@ -852,7 +962,8 @@ export default function App() {
           onBack={() => setScreen('setup')} />
       )}
       {screen === 'round' && currentRound && (
-        <RoundScreen round={currentRound} onUpdateHole={handleUpdateHole} onFinish={() => setScreen('analysis')} />
+        <RoundScreen round={currentRound} onUpdateHole={handleUpdateHole}
+          onFinish={() => setScreen('analysis')} isManual={currentRound.isManual} />
       )}
       {screen === 'analysis' && currentRound && (
         <AnalysisScreen round={currentRound} onSave={handleSaveRound} onNewRound={handleNewRound} saved={roundSaved} />
