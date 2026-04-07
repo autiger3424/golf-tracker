@@ -1,7 +1,6 @@
 import React, { useCallback } from 'react';
 import './App.css';
 import { COURSES } from './courses';
-import { GEMINI_API_KEY } from './config';
 
 // ============================================================
 // HELPERS
@@ -105,51 +104,18 @@ function saveRoundsToStorage(rs) {
 }
 
 // ============================================================
-// GEMINI VISION API
+// GEMINI VISION — calls our own serverless proxy (key stays server-side)
 // ============================================================
 async function scanScorecardWithGemini(base64Image, mediaType) {
-  const prompt = `Read this golf scorecard. Return ONLY valid JSON with no other text:
-{"courseName": "string", "tees": [{"name": "string", "color": "string", "holes": [{"hole": 1, "par": 4, "yards": 400}]}]}
-Include every tee box visible. Each tee must have exactly 18 holes. color should be one of: black/blue/white/red/gold/green/silver.`;
-
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [
-          { text: prompt },
-          { inlineData: { mimeType: mediaType, data: base64Image } }
-        ]}],
-        generationConfig: { temperature: 0.1, maxOutputTokens: 4000 }
-      })
-    }
-  );
-
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({}));
-    throw new Error(err?.error?.message || `Gemini API error ${response.status}`);
-  }
+  const response = await fetch('/api/scan-scorecard', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ base64Image, mediaType })
+  });
 
   const data = await response.json();
-  const raw = (data.candidates?.[0]?.content?.parts?.[0]?.text || '')
-    .replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-  const parsed = JSON.parse(raw);
-
-  // Normalize: prompt returns "hole" field; app expects "number"
-  if (parsed.tees) {
-    parsed.tees = parsed.tees.map(tee => ({
-      name: tee.name || 'Unknown',
-      color: tee.color || 'white',
-      holes: (tee.holes || []).map((h, i) => ({
-        number: h.hole || h.number || (i + 1),
-        par: h.par || 4,
-        yards: h.yards || 0
-      }))
-    }));
-  }
-  return parsed;
+  if (!response.ok) throw new Error(data?.error || `Server error ${response.status}`);
+  return data;
 }
 
 // ============================================================

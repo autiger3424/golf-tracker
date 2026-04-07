@@ -1,1 +1,2 @@
-export const GEMINI_API_KEY = "AIzaSyAcGU0j3HXB759ywvPQLAZC58Vve-wqTNo";
+// API keys are stored as Vercel environment variables (server-side only).
+// Nothing sensitive lives in the client bundle.
