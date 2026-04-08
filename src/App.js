@@ -82,7 +82,7 @@ function calcStats(holes) {
 function createHolesFromTee(tee) {
   return tee.holes.map(h => ({
     number: h.number, par: h.par, yards: h.yards,
-    score: '', putts: '', fairwayHit: null, gir: false,
+    score: '', putts: '', fairwayHit: null, fairwayMissDirection: null, gir: null,
     fairwayBunker: false, greensideBunker: false, ob: false, water: false, notes: ''
   }));
 }
@@ -90,7 +90,7 @@ function createHolesFromTee(tee) {
 function createBlankHoles() {
   return Array.from({ length: 18 }, (_, i) => ({
     number: i + 1, par: 4, yards: 0,
-    score: '', putts: '', fairwayHit: null, gir: false,
+    score: '', putts: '', fairwayHit: null, fairwayMissDirection: null, gir: null,
     fairwayBunker: false, greensideBunker: false, ob: false, water: false, notes: ''
   }));
 }
@@ -101,6 +101,14 @@ function formatDate(iso) {
 
 function saveRoundsToStorage(rs) {
   try { localStorage.setItem('golf_rounds', JSON.stringify(rs)); } catch (e) {}
+}
+
+function loadCustomCourses() {
+  try { return JSON.parse(localStorage.getItem('golf_custom_courses') || '[]'); } catch { return []; }
+}
+
+function persistCustomCourses(courses) {
+  try { localStorage.setItem('golf_custom_courses', JSON.stringify(courses)); } catch {}
 }
 
 // ============================================================
@@ -220,24 +228,46 @@ function HoleCard({ hole, onChange, isManual }) {
               ) : (
                 <>
                   <button className={`chip${hole.fairwayHit === true ? ' active' : ''}`}
-                    onClick={() => onChange({ fairwayHit: hole.fairwayHit === true ? null : true })}>
+                    onClick={() => onChange({ fairwayHit: hole.fairwayHit === true ? null : true, fairwayMissDirection: null })}>
                     ✓ Hit
                   </button>
                   <button className={`chip${hole.fairwayHit === false ? ' active red' : ''}`}
-                    onClick={() => onChange({ fairwayHit: hole.fairwayHit === false ? null : false })}>
+                    onClick={() => {
+                      const next = hole.fairwayHit === false ? null : false;
+                      onChange({ fairwayHit: next, ...(next !== false ? { fairwayMissDirection: null } : {}) });
+                    }}>
                     ✗ Miss
                   </button>
                 </>
               )}
             </div>
+            {hole.fairwayHit === false && (
+              <div style={{ marginTop: 8 }}>
+                <label className="form-label" style={{ marginBottom: 6, fontSize: '0.78rem', color: 'var(--text-muted)' }}>Miss Direction</label>
+                <div className="toggle-buttons">
+                  <button className={`chip${hole.fairwayMissDirection === 'left' ? ' active red' : ''}`}
+                    onClick={() => onChange({ fairwayMissDirection: hole.fairwayMissDirection === 'left' ? null : 'left' })}>
+                    ◀ Left
+                  </button>
+                  <button className={`chip${hole.fairwayMissDirection === 'right' ? ' active red' : ''}`}
+                    onClick={() => onChange({ fairwayMissDirection: hole.fairwayMissDirection === 'right' ? null : 'right' })}>
+                    Right ▶
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           <div style={{ marginTop: 12 }}>
             <label className="form-label" style={{ marginBottom: 6 }}>GIR (Green in Regulation)</label>
             <div className="toggle-buttons">
               <button className={`chip${hole.gir === true ? ' active' : ''}`}
-                onClick={() => onChange({ gir: !hole.gir })}>
-                {hole.gir ? '✓ Yes' : 'No'}
+                onClick={() => onChange({ gir: hole.gir === true ? null : true })}>
+                ✓ Yes
+              </button>
+              <button className={`chip${hole.gir === false ? ' active red' : ''}`}
+                onClick={() => onChange({ gir: hole.gir === false ? null : false })}>
+                ✗ No
               </button>
             </div>
           </div>
@@ -282,10 +312,26 @@ function SetupScreen({ onStart }) {
   const fileRef = React.useRef(null);
   const [manualCourseName, setManualCourseName] = React.useState('');
   const [manualTeeName, setManualTeeName] = React.useState('');
+  const [customCourses, setCustomCourses] = React.useState(loadCustomCourses);
 
-  const filtered = COURSES.filter(c =>
+  const saveCustomCourse = (course) => {
+    const existing = loadCustomCourses();
+    const filtered2 = existing.filter(c => c.id !== course.id);
+    const updated = [course, ...filtered2];
+    persistCustomCourses(updated);
+    setCustomCourses(updated);
+  };
+
+  const deleteCustomCourse = (courseId) => {
+    const updated = customCourses.filter(c => c.id !== courseId);
+    persistCustomCourses(updated);
+    setCustomCourses(updated);
+  };
+
+  const allCourses = [...customCourses, ...COURSES];
+  const filtered = allCourses.filter(c =>
     c.name.toLowerCase().includes(courseSearch.toLowerCase()) ||
-    c.location.toLowerCase().includes(courseSearch.toLowerCase())
+    (c.location || '').toLowerCase().includes(courseSearch.toLowerCase())
   );
 
   const handleScan = async (e) => {
@@ -319,6 +365,17 @@ function SetupScreen({ onStart }) {
         (result.tees?.length || 0) + ' tee(s) found: ' +
         (result.tees?.map(t => t.name).join(', ') || '')
       );
+      // Auto-save scanned course to custom courses
+      if (result.courseName && result.tees?.length) {
+        const courseId = 'custom_' + result.courseName.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+        saveCustomCourse({
+          id: courseId,
+          name: result.courseName,
+          location: '',
+          tees: result.tees,
+          isCustom: true,
+        });
+      }
     } catch (err) {
       setScanStatus('error');
       setScanMsg('Scan failed: ' + err.message);
@@ -336,12 +393,15 @@ function SetupScreen({ onStart }) {
         color: 'white',
         holes: createBlankHoles(),
       };
+      const courseId = 'custom_manual_' + manualCourseName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_');
       const course = {
-        id: 'manual',
+        id: courseId,
         name: manualCourseName.trim(),
         location: '',
         tees: [tee],
+        isCustom: true,
       };
+      saveCustomCourse(course);
       onStart({ playerName: playerName.trim(), roundType, course, selectedTee: tee });
     } else {
       const course = selectedCourse
@@ -431,11 +491,19 @@ function SetupScreen({ onStart }) {
             <div key={c.id}
               className={`course-item${selectedCourse?.id === c.id ? ' selected' : ''}`}
               onClick={() => { setSelectedCourse(c); setScannedTees(null); setScanStatus(null); }}>
-              <div>
-                <div className="course-item-name">{c.name}</div>
-                <div className="course-item-loc">{c.location}</div>
+              <div style={{ flex: 1 }}>
+                <div className="course-item-name">
+                  {c.name}
+                  {c.isCustom && <span className="custom-course-badge">⭐ Saved</span>}
+                </div>
               </div>
-              {selectedCourse?.id === c.id && <span style={{ marginLeft: 'auto', color: 'var(--accent)' }}>✓</span>}
+              {c.isCustom && (
+                <button className="delete-course-btn"
+                  onClick={e => { e.stopPropagation(); deleteCustomCourse(c.id); if (selectedCourse?.id === c.id) setSelectedCourse(null); }}>
+                  ✕
+                </button>
+              )}
+              {selectedCourse?.id === c.id && <span style={{ color: 'var(--accent)' }}>✓</span>}
             </div>
           ))}
         </div>
@@ -632,7 +700,7 @@ function AnalysisScreen({ round, onSave, onNewRound, saved }) {
         <div className="table-scroll">
           <table className="hole-table">
             <thead>
-              <tr><th>#</th><th>Par</th><th>Yds</th><th>Score</th><th>Putts</th><th>FW</th><th>GIR</th></tr>
+              <tr><th>#</th><th>Par</th><th>Yds</th><th>Score</th><th>Putts</th><th>FW</th><th>Miss</th><th>GIR</th></tr>
             </thead>
             <tbody>
               {round.holes.map(h => {
@@ -645,7 +713,8 @@ function AnalysisScreen({ round, onSave, onNewRound, saved }) {
                     <td className={'score-cell ' + sc}>{h.score !== '' && h.score !== null ? h.score : '—'}</td>
                     <td>{h.putts !== '' && h.putts !== null ? h.putts : '—'}</td>
                     <td>{h.par === 3 ? '—' : h.fairwayHit === true ? '✓' : h.fairwayHit === false ? '✗' : '—'}</td>
-                    <td>{h.gir ? '✓' : '—'}</td>
+                    <td>{h.par === 3 ? '—' : h.fairwayHit === false && h.fairwayMissDirection ? (h.fairwayMissDirection === 'left' ? '◀L' : 'R▶') : '—'}</td>
+                    <td>{h.gir === true ? '✓' : h.gir === false ? '✗' : '—'}</td>
                   </tr>
                 );
               })}
@@ -654,6 +723,7 @@ function AnalysisScreen({ round, onSave, onNewRound, saved }) {
                 <td className={'score-cell ' + scoreDiffClass(scoreDiff)}>{totalScore}</td>
                 <td>{sumPutts ?? '—'}</td>
                 <td>{fwPct !== null ? fwPct + '%' : '—'}</td>
+                <td>—</td>
                 <td>{girPct !== null ? girPct + '%' : '—'}</td>
               </tr>
             </tbody>
