@@ -1,7 +1,7 @@
 // Vercel serverless function — keeps all API keys server-side
 // POST /api/scan-scorecard
 // Body: { base64Image: string, mediaType: string }
-// Strategy: try Gemini first; on quota/rate error fall back to Claude.
+// Fallback chain: gemini-2.0-flash → gemini-2.0-flash-lite → gemini-2.5-flash → Claude
 
 module.exports.config = { api: { bodyParser: { sizeLimit: '10mb' } } };
 
@@ -14,6 +14,13 @@ Rules:
 - Every tee must have exactly 18 holes numbered 1-18
 - color must be one of: black/blue/white/red/gold/green/silver
 - Return ONLY the raw JSON, nothing else`;
+
+// Each Gemini model has its own independent quota bucket
+const GEMINI_MODELS = [
+  'gemini-2.0-flash',
+  'gemini-2.0-flash-lite',
+  'gemini-2.5-flash',
+];
 
 function extractJSON(text) {
   const stripped = text.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
@@ -41,13 +48,14 @@ function normalizeTees(parsed) {
   return parsed;
 }
 
-// ── Gemini ──────────────────────────────────────────────────────────────────
-async function tryGemini(base64Image, mediaType) {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw { quota: false, message: 'GEMINI_API_KEY not set' };
+function isQuotaError(status, msg) {
+  return status === 429 || /quota/i.test(msg) || /rate.?limit/i.test(msg) || /resource.?exhausted/i.test(msg);
+}
 
+// ── Try one Gemini model ─────────────────────────────────────────────────────
+async function tryGeminiModel(model, base64Image, mediaType, apiKey) {
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -63,10 +71,8 @@ async function tryGemini(base64Image, mediaType) {
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    const msg  = body?.error?.message || `Gemini error ${res.status}`;
-    // 429 = quota exceeded → signal caller to try fallback
-    const quota = res.status === 429 || /quota/i.test(msg) || /rate/i.test(msg);
-    throw { quota, message: msg };
+    const msg  = body?.error?.message || `Gemini ${model} error ${res.status}`;
+    throw { quota: isQuotaError(res.status, msg), message: msg };
   }
 
   const data    = await res.json();
@@ -123,23 +129,37 @@ module.exports = async function handler(req, res) {
     return res.status(400).json({ error: 'Missing base64Image or mediaType' });
   }
 
-  // 1. Try Gemini
-  try {
-    const result = await tryGemini(base64Image, mediaType);
-    return res.status(200).json({ ...result, _provider: 'gemini' });
-  } catch (geminiErr) {
-    // Only fall back to Claude on quota/rate errors; hard-fail on others
-    if (!geminiErr.quota) {
-      return res.status(500).json({ error: 'Gemini: ' + geminiErr.message });
+  const geminiKey = process.env.GEMINI_API_KEY;
+
+  // 1. Try each Gemini model in order — each has its own quota bucket
+  if (geminiKey) {
+    for (const model of GEMINI_MODELS) {
+      try {
+        console.log(`Trying ${model}…`);
+        const result = await tryGeminiModel(model, base64Image, mediaType, geminiKey);
+        console.log(`Success with ${model}`);
+        return res.status(200).json({ ...result, _provider: model });
+      } catch (err) {
+        if (err.quota) {
+          console.log(`${model} quota hit, trying next…`);
+          continue; // try next model
+        }
+        // Non-quota error (bad image, parse failure, etc.) — stop trying Gemini
+        console.log(`${model} non-quota error: ${err.message}`);
+        break;
+      }
     }
-    console.log('Gemini quota hit — falling back to Claude');
   }
 
   // 2. Fall back to Claude
+  console.log('All Gemini models exhausted — trying Claude…');
   try {
     const result = await tryClaude(base64Image, mediaType);
     return res.status(200).json({ ...result, _provider: 'claude' });
   } catch (claudeErr) {
-    return res.status(500).json({ error: 'Claude: ' + claudeErr.message });
+    return res.status(500).json({
+      error: claudeErr.message,
+      hint: 'All AI providers failed. Gemini quota may be exhausted and Claude credits may need topping up at console.anthropic.com.'
+    });
   }
 };
