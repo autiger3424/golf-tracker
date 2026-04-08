@@ -1,6 +1,8 @@
 import React, { useCallback } from 'react';
 import './App.css';
 import { COURSES } from './courses';
+import { GoogleOAuthProvider, useGoogleLogin } from '@react-oauth/google';
+import { GOOGLE_CLIENT_ID } from './config';
 
 // ============================================================
 // HELPERS
@@ -155,6 +157,45 @@ async function scanScorecardWithGemini(base64Image, mediaType) {
 
   if (!response.ok) throw new Error(data?.error || `Server error ${response.status}`);
   return data;
+}
+
+// ============================================================
+// GOOGLE CALENDAR HELPER — add a completed round as a calendar event
+// ============================================================
+async function addRoundToCalendar(round, stats) {
+  const token = localStorage.getItem('google_calendar_token');
+  if (!token) return { ok: false, msg: 'Not signed in to Google' };
+  try {
+    const d = new Date(round.date);
+    const end = new Date(d.getTime() + 4 * 60 * 60 * 1000);
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const lines = [
+      `Course: ${round.courseName}`,
+      `Tee: ${round.tee}`,
+      `Score: ${stats.totalScore} (${stats.scoreDiff >= 0 ? '+' : ''}${stats.scoreDiff} vs par)`,
+      stats.fwPct !== null ? `Fairways: ${stats.fwPct}%` : null,
+      stats.girPct !== null ? `GIR: ${stats.girPct}%` : null,
+      stats.avgPutts ? `Avg Putts: ${stats.avgPutts}` : null,
+      `\nTracked with Grady GolfTrack`,
+    ].filter(Boolean);
+    const event = {
+      summary: `⛳ Golf - ${round.courseName}`,
+      description: lines.join('\n'),
+      start: { dateTime: d.toISOString(), timeZone: tz },
+      end: { dateTime: end.toISOString(), timeZone: tz },
+      colorId: '2',
+    };
+    const r = await fetch('/api/calendar/events', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(event),
+    });
+    const data = await r.json();
+    if (!r.ok) return { ok: false, msg: data.error?.message || 'Failed to create event' };
+    return { ok: true, msg: '✓ Added to Google Calendar!' };
+  } catch (e) {
+    return { ok: false, msg: e.message };
+  }
 }
 
 // ============================================================
@@ -327,7 +368,7 @@ function HoleCard({ hole, onChange, isManual }) {
 // ============================================================
 // SETUP SCREEN
 // ============================================================
-function SetupScreen({ onStart }) {
+function SetupScreen({ onStart, preloadCourseName }) {
   const [playerName, setPlayerName] = React.useState(() => localStorage.getItem('golf_player_name') || '');
   const [roundType, setRoundType] = React.useState('practice');
   const [courseSearch, setCourseSearch] = React.useState('');
@@ -336,7 +377,7 @@ function SetupScreen({ onStart }) {
   const [scanMsg, setScanMsg] = React.useState('');
   const [scannedTees, setScannedTees] = React.useState(null);
   const fileRef = React.useRef(null);
-  const [manualCourseName, setManualCourseName] = React.useState('');
+  const [manualCourseName, setManualCourseName] = React.useState(preloadCourseName || '');
   const [manualTeeName, setManualTeeName] = React.useState('');
   const [customCourses, setCustomCourses] = React.useState(loadCustomCourses);
 
@@ -641,6 +682,17 @@ function RoundScreen({ round, onUpdateHole, onFinish, isManual }) {
 // ============================================================
 function AnalysisScreen({ round, onSave, onNewRound, saved }) {
   const stats = calcStats(round.holes);
+  const [calStatus, setCalStatus] = React.useState(null); // null | 'loading' | 'success' | 'error'
+  const [calMsg, setCalMsg] = React.useState('');
+  const hasCalToken = !!localStorage.getItem('google_calendar_token');
+
+  const handleAddToCalendar = async () => {
+    setCalStatus('loading');
+    setCalMsg('Adding to calendar…');
+    const result = await addRoundToCalendar(round, stats);
+    setCalStatus(result.ok ? 'success' : 'error');
+    setCalMsg(result.msg);
+  };
 
   if (!stats) {
     return (
@@ -769,6 +821,22 @@ function AnalysisScreen({ round, onSave, onNewRound, saved }) {
         )}
         <button className="btn btn-secondary" onClick={onNewRound} style={{ flex: 1 }}>New Round</button>
       </div>
+
+      {saved && hasCalToken && (
+        <div style={{ marginTop: 10 }}>
+          <button className="btn btn-secondary" style={{ width: '100%' }}
+            disabled={calStatus === 'loading' || calStatus === 'success'}
+            onClick={handleAddToCalendar}>
+            {calStatus === 'loading' ? '⏳ Adding…' : calStatus === 'success' ? '✓ Added to Calendar' : '📅 Add to Google Calendar'}
+          </button>
+          {calMsg && (
+            <div style={{ marginTop: 6, fontSize: '0.82rem', textAlign: 'center',
+              color: calStatus === 'success' ? 'var(--accent)' : 'var(--red)' }}>
+              {calMsg}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -874,6 +942,237 @@ function EditRoundScreen({ round, onSave, onCancel }) {
             Cancel
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// CALENDAR SCREEN
+// ============================================================
+function CalendarScreen({ onPreloadCourse }) {
+  const [accessToken, setAccessToken] = React.useState(
+    () => localStorage.getItem('google_calendar_token') || null
+  );
+  const [userInfo, setUserInfo] = React.useState(() => {
+    try { return JSON.parse(localStorage.getItem('google_user_info') || 'null'); } catch { return null; }
+  });
+  const [events, setEvents] = React.useState([]);
+  const [loadingEvents, setLoadingEvents] = React.useState(false);
+  const [eventsError, setEventsError] = React.useState('');
+  const [scheduleDate, setScheduleDate] = React.useState('');
+  const [scheduleTime, setScheduleTime] = React.useState('08:00');
+  const [scheduleCourse, setScheduleCourse] = React.useState('');
+  const [scheduleStatus, setScheduleStatus] = React.useState(null);
+  const [scheduleMsg, setScheduleMsg] = React.useState('');
+
+  const login = useGoogleLogin({
+    onSuccess: async (tokenResponse) => {
+      const token = tokenResponse.access_token;
+      setAccessToken(token);
+      localStorage.setItem('google_calendar_token', token);
+      try {
+        const r = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const info = await r.json();
+        setUserInfo(info);
+        localStorage.setItem('google_user_info', JSON.stringify(info));
+      } catch {}
+    },
+    onError: () => setEventsError('Sign-in failed. Please try again.'),
+    scope: 'https://www.googleapis.com/auth/calendar.events',
+  });
+
+  const signOut = () => {
+    setAccessToken(null);
+    setUserInfo(null);
+    setEvents([]);
+    localStorage.removeItem('google_calendar_token');
+    localStorage.removeItem('google_user_info');
+  };
+
+  const fetchEvents = React.useCallback(async (token) => {
+    const t = token || accessToken;
+    if (!t) return;
+    setLoadingEvents(true);
+    setEventsError('');
+    try {
+      const r = await fetch('/api/calendar/events', {
+        headers: { Authorization: `Bearer ${t}` }
+      });
+      if (r.status === 401) { signOut(); return; }
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error?.message || 'Failed to load events');
+      setEvents(data.items || []);
+    } catch (e) {
+      setEventsError(e.message);
+    }
+    setLoadingEvents(false);
+  }, [accessToken]);
+
+  React.useEffect(() => {
+    if (accessToken) fetchEvents(accessToken);
+  }, [accessToken, fetchEvents]);
+
+  const scheduleRound = async () => {
+    if (!scheduleDate || !scheduleCourse) return;
+    setScheduleStatus('loading');
+    setScheduleMsg('Adding to calendar…');
+    try {
+      const start = new Date(`${scheduleDate}T${scheduleTime}`);
+      const end = new Date(start.getTime() + 4 * 60 * 60 * 1000);
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const event = {
+        summary: `⛳ Golf - ${scheduleCourse}`,
+        description: 'Golf round scheduled via Grady GolfTrack',
+        start: { dateTime: start.toISOString(), timeZone: tz },
+        end: { dateTime: end.toISOString(), timeZone: tz },
+        colorId: '2',
+      };
+      const r = await fetch('/api/calendar/events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify(event),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error?.message || 'Failed to create event');
+      setScheduleStatus('success');
+      setScheduleMsg('✓ Added to Google Calendar!');
+      setScheduleDate('');
+      setScheduleCourse('');
+      fetchEvents();
+      setTimeout(() => { setScheduleStatus(null); setScheduleMsg(''); }, 3000);
+    } catch (e) {
+      setScheduleStatus('error');
+      setScheduleMsg(e.message);
+    }
+  };
+
+  if (!accessToken) {
+    return (
+      <div className="screen">
+        <div style={{ marginBottom: 20 }}>
+          <h2 style={{ marginBottom: 4 }}>Google Calendar</h2>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+            Sync your golf schedule with Google Calendar.
+          </p>
+        </div>
+        <button className="btn btn-primary" style={{ marginBottom: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}
+          onClick={() => login()}>
+          <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20H24v8h11.3C33.7 32.9 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3 0 5.7 1.1 7.8 2.9l6-6C34.5 6.5 29.6 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20c11 0 20-8 20-20 0-1.3-.1-2.7-.4-4z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.5 15.3 18.9 12 24 12c3 0 5.7 1.1 7.8 2.9l6-6C34.5 6.5 29.6 4 24 4 16.3 4 9.7 8.4 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 10-1.9 13.6-5l-6.3-5.3C29.4 35.5 26.8 36 24 36c-5.2 0-9.6-3.1-11.3-7.5l-6.6 5.1C9.5 39.4 16.3 44 24 44z"/><path fill="#1976D2" d="M43.6 20H24v8h11.3c-.8 2.3-2.4 4.2-4.4 5.5l6.3 5.3C40.9 35.4 44 30.1 44 24c0-1.3-.1-2.7-.4-4z"/></svg>
+          Sign in with Google
+        </button>
+        <div className="card">
+          <div className="card-title">With Calendar sync you can:</div>
+          <ul style={{ paddingLeft: 18, lineHeight: 2.2, fontSize: '0.88rem', color: 'var(--text-dim)', margin: 0 }}>
+            <li>View upcoming golf rounds from your calendar</li>
+            <li>Tap an event to pre-load the course name on Setup</li>
+            <li>Schedule future rounds with date &amp; tee time</li>
+            <li>Add completed rounds with score summary</li>
+          </ul>
+        </div>
+        {eventsError && (
+          <div className="scan-status error" style={{ marginTop: 12 }}>{eventsError}</div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="screen">
+      {/* Signed-in user header */}
+      <div className="card" style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 14 }}>
+        {userInfo?.picture && (
+          <img src={userInfo.picture} alt="" style={{ width: 42, height: 42, borderRadius: '50%', flexShrink: 0 }} />
+        )}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 700, fontSize: '0.92rem' }}>{userInfo?.name || 'Signed in'}</div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {userInfo?.email}
+          </div>
+        </div>
+        <button className="btn btn-secondary btn-sm" onClick={signOut} style={{ flexShrink: 0 }}>
+          Sign Out
+        </button>
+      </div>
+
+      {/* Upcoming rounds */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <div className="card-title" style={{ marginBottom: 0 }}>Upcoming Rounds</div>
+          <button className="btn btn-secondary btn-sm" onClick={() => fetchEvents()} disabled={loadingEvents}>↻ Refresh</button>
+        </div>
+        {loadingEvents ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--text-muted)', fontSize: '0.85rem', padding: '8px 0' }}>
+            <div className="spinner" />Loading events…
+          </div>
+        ) : eventsError ? (
+          <div style={{ color: 'var(--red)', fontSize: '0.85rem' }}>{eventsError}</div>
+        ) : events.length === 0 ? (
+          <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+            No upcoming golf events found in your Google Calendar.
+          </div>
+        ) : (
+          events.map(ev => {
+            const evDate = new Date(ev.start.dateTime || ev.start.date);
+            const courseName = ev.summary.replace(/^⛳\s*Golf\s*[-–]\s*/i, '').trim();
+            return (
+              <div key={ev.id} className="cal-event"
+                onClick={() => onPreloadCourse(courseName)}>
+                <div className="cal-event-date">
+                  <div style={{ fontSize: '1.15rem', fontWeight: 800, lineHeight: 1 }}>{evDate.getDate()}</div>
+                  <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 1 }}>
+                    {evDate.toLocaleString('en-US', { month: 'short' })}
+                  </div>
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: '0.88rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.summary}</div>
+                  {ev.start.dateTime && (
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                      {evDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                    </div>
+                  )}
+                </div>
+                <span style={{ fontSize: '0.72rem', color: 'var(--accent)', fontWeight: 700, flexShrink: 0 }}>Start ▶</span>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* Schedule a round */}
+      <div className="card">
+        <div className="card-title">Schedule a Round</div>
+        <div className="form-group" style={{ marginBottom: 10 }}>
+          <label className="form-label">Course Name</label>
+          <input className="form-input" type="text" value={scheduleCourse}
+            onChange={e => setScheduleCourse(e.target.value)}
+            placeholder="e.g. Pebble Beach Golf Links" />
+        </div>
+        <div className="form-group" style={{ marginBottom: 10 }}>
+          <label className="form-label">Date</label>
+          <input className="form-input" type="date" value={scheduleDate}
+            onChange={e => setScheduleDate(e.target.value)} />
+        </div>
+        <div className="form-group" style={{ marginBottom: 14 }}>
+          <label className="form-label">Tee Time</label>
+          <input className="form-input" type="time" value={scheduleTime}
+            onChange={e => setScheduleTime(e.target.value)} />
+        </div>
+        <button className="btn btn-primary"
+          disabled={!scheduleDate || !scheduleCourse || scheduleStatus === 'loading'}
+          onClick={scheduleRound}>
+          {scheduleStatus === 'loading' ? '⏳ Adding…' : '📅 Add to Google Calendar'}
+        </button>
+        {scheduleMsg && (
+          <div style={{
+            marginTop: 10, fontSize: '0.85rem',
+            color: scheduleStatus === 'success' ? 'var(--accent)' : 'var(--red)'
+          }}>
+            {scheduleMsg}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1020,7 +1319,7 @@ function HistoryScreen({ rounds, onViewRound, onEdit }) {
 // ============================================================
 // MAIN APP
 // ============================================================
-export default function App() {
+function App() {
   const [screen, setScreen] = React.useState('setup');
   const [rounds, setRounds] = React.useState(() => {
     try { return JSON.parse(localStorage.getItem('golf_rounds') || '[]'); } catch { return []; }
@@ -1030,6 +1329,7 @@ export default function App() {
   const [roundSaved, setRoundSaved] = React.useState(false);
   const [historyRound, setHistoryRound] = React.useState(null);
   const [editingRound, setEditingRound] = React.useState(null);
+  const [preloadCourse, setPreloadCourse] = React.useState(null);
 
   const saveRounds = useCallback((rs) => {
     setRounds(rs);
@@ -1117,12 +1417,18 @@ export default function App() {
     setScreen('history');
   };
 
+  const handlePreloadCourse = (courseName) => {
+    setPreloadCourse(courseName);
+    setScreen('setup');
+  };
+
   // Nav tabs config
   const navItems = [
     { key: 'setup', label: '⛳ New' },
     { key: 'round', label: '📋 Round', disabled: !currentRound },
     { key: 'analysis', label: '📊 Analysis', disabled: !currentRound },
     { key: 'history', label: '📁 History' },
+    { key: 'calendar', label: '📅 Cal' },
   ];
 
   const handleNavClick = (key) => {
@@ -1131,7 +1437,10 @@ export default function App() {
     setScreen(key);
   };
 
-  const activeNav = screen === 'historyAnalysis' ? 'history' : screen === 'teeSelect' ? 'setup' : screen === 'editRound' ? 'history' : screen;
+  const activeNav = screen === 'historyAnalysis' ? 'history'
+    : screen === 'teeSelect' ? 'setup'
+    : screen === 'editRound' ? 'history'
+    : screen;
 
   return (
     <div>
@@ -1154,7 +1463,7 @@ export default function App() {
       </div>
 
       {screen === 'setup' && (
-        <SetupScreen onStart={handleSetupStart} />
+        <SetupScreen onStart={handleSetupStart} preloadCourseName={preloadCourse} />
       )}
       {screen === 'teeSelect' && pendingSetup && (
         <TeeSelectScreen
@@ -1185,6 +1494,17 @@ export default function App() {
           onSave={handleSaveEdit}
           onCancel={() => { setEditingRound(null); setScreen('history'); }} />
       )}
+      {screen === 'calendar' && (
+        <CalendarScreen onPreloadCourse={handlePreloadCourse} />
+      )}
     </div>
+  );
+}
+
+export default function AppWrapper() {
+  return (
+    <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
+      <App />
+    </GoogleOAuthProvider>
   );
 }
