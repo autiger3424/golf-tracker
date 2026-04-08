@@ -1,8 +1,8 @@
-// Vercel serverless function — keeps the Gemini API key server-side
+// Vercel serverless function — keeps all API keys server-side
 // POST /api/scan-scorecard
 // Body: { base64Image: string, mediaType: string }
+// Strategy: try Gemini first; on quota/rate error fall back to Claude.
 
-// Increase body size limit for base64-encoded images (default is 1mb)
 module.exports.config = { api: { bodyParser: { sizeLimit: '10mb' } } };
 
 const PROMPT = `Read this golf scorecard image carefully.
@@ -15,22 +15,101 @@ Rules:
 - color must be one of: black/blue/white/red/gold/green/silver
 - Return ONLY the raw JSON, nothing else`;
 
-// Try several strategies to pull a JSON object out of Gemini's reply
 function extractJSON(text) {
-  // 1. Strip markdown code fences then try direct parse
   const stripped = text.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
   try { return JSON.parse(stripped); } catch {}
-
-  // 2. Find the first { ... } block
   const start = stripped.indexOf('{');
   const end   = stripped.lastIndexOf('}');
   if (start !== -1 && end > start) {
     try { return JSON.parse(stripped.slice(start, end + 1)); } catch {}
   }
-
-  throw new Error('No valid JSON found. Raw reply: ' + text.slice(0, 300));
+  throw new Error('No valid JSON found in AI response: ' + text.slice(0, 300));
 }
 
+function normalizeTees(parsed) {
+  if (parsed.tees) {
+    parsed.tees = parsed.tees.map(tee => ({
+      name:  tee.name  || 'Unknown',
+      color: tee.color || 'white',
+      holes: (tee.holes || []).map((h, i) => ({
+        number: h.hole || h.number || (i + 1),
+        par:    h.par    || 4,
+        yards:  h.yards  || 0
+      }))
+    }));
+  }
+  return parsed;
+}
+
+// ── Gemini ──────────────────────────────────────────────────────────────────
+async function tryGemini(base64Image, mediaType) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw { quota: false, message: 'GEMINI_API_KEY not set' };
+
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [
+          { text: PROMPT },
+          { inlineData: { mimeType: mediaType, data: base64Image } }
+        ]}],
+        generationConfig: { temperature: 0.1, maxOutputTokens: 4096 }
+      })
+    }
+  );
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    const msg  = body?.error?.message || `Gemini error ${res.status}`;
+    // 429 = quota exceeded → signal caller to try fallback
+    const quota = res.status === 429 || /quota/i.test(msg) || /rate/i.test(msg);
+    throw { quota, message: msg };
+  }
+
+  const data    = await res.json();
+  const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  return normalizeTees(extractJSON(rawText));
+}
+
+// ── Claude fallback ──────────────────────────────────────────────────────────
+async function tryClaude(base64Image, mediaType) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 4096,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Image } },
+          { type: 'text',  text: PROMPT }
+        ]
+      }]
+    })
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error?.message || `Claude error ${res.status}`);
+  }
+
+  const data    = await res.json();
+  const rawText = data.content?.[0]?.text || '';
+  return normalizeTees(extractJSON(rawText));
+}
+
+// ── Handler ──────────────────────────────────────────────────────────────────
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -44,60 +123,23 @@ module.exports = async function handler(req, res) {
     return res.status(400).json({ error: 'Missing base64Image or mediaType' });
   }
 
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    return res.status(500).json({ error: 'GEMINI_API_KEY not configured on server' });
-  }
-
-  let geminiRes;
+  // 1. Try Gemini
   try {
-    geminiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [
-            { text: PROMPT },
-            { inlineData: { mimeType: mediaType, data: base64Image } }
-          ]}],
-          generationConfig: { temperature: 0.1, maxOutputTokens: 4096 }
-        })
-      }
-    );
-  } catch (err) {
-    return res.status(502).json({ error: 'Failed to reach Gemini API: ' + err.message });
+    const result = await tryGemini(base64Image, mediaType);
+    return res.status(200).json({ ...result, _provider: 'gemini' });
+  } catch (geminiErr) {
+    // Only fall back to Claude on quota/rate errors; hard-fail on others
+    if (!geminiErr.quota) {
+      return res.status(500).json({ error: 'Gemini: ' + geminiErr.message });
+    }
+    console.log('Gemini quota hit — falling back to Claude');
   }
 
-  if (!geminiRes.ok) {
-    const errBody = await geminiRes.json().catch(() => ({}));
-    return res.status(geminiRes.status).json({
-      error: errBody?.error?.message || `Gemini API error ${geminiRes.status}`
-    });
-  }
-
-  const data = await geminiRes.json();
-  const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-
-  let parsed;
+  // 2. Fall back to Claude
   try {
-    parsed = extractJSON(rawText);
-  } catch (e) {
-    return res.status(500).json({ error: e.message });
+    const result = await tryClaude(base64Image, mediaType);
+    return res.status(200).json({ ...result, _provider: 'claude' });
+  } catch (claudeErr) {
+    return res.status(500).json({ error: 'Claude: ' + claudeErr.message });
   }
-
-  // Normalize: Gemini returns "hole" field; app expects "number"
-  if (parsed.tees) {
-    parsed.tees = parsed.tees.map(tee => ({
-      name:  tee.name  || 'Unknown',
-      color: tee.color || 'white',
-      holes: (tee.holes || []).map((h, i) => ({
-        number: h.hole || h.number || (i + 1),
-        par:    h.par    || 4,
-        yards:  h.yards  || 0
-      }))
-    }));
-  }
-
-  return res.status(200).json(parsed);
 };
