@@ -745,7 +745,9 @@ function AnalysisScreen({ round, onSave, onNewRound, saved }) {
                 );
               })}
               <tr style={{ background: 'var(--surface)', fontWeight: 700 }}>
-                <td colSpan={3} style={{ textAlign: 'left', paddingLeft: 4, color: 'var(--text-dim)' }}>Total</td>
+                <td style={{ color: 'var(--text-dim)' }}>Total</td>
+                <td>{round.holes.reduce((s, h) => s + h.par, 0)}</td>
+                <td>{round.holes.reduce((s, h) => s + (h.yards || 0), 0).toLocaleString()}</td>
                 <td className={'score-cell ' + scoreDiffClass(scoreDiff)}>{totalScore}</td>
                 <td>{sumPutts ?? '—'}</td>
                 <td>{fwPct !== null ? fwPct + '%' : '—'}</td>
