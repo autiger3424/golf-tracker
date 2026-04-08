@@ -1008,7 +1008,7 @@ export default function App() {
   return (
     <div>
       <div className="app-header">
-        <div className="logo">Golf<span>Track</span></div>
+        <div className="logo">Grady <span>GolfTrack</span></div>
         <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
           {rounds.length} round{rounds.length !== 1 ? 's' : ''}
         </div>
