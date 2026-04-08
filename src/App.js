@@ -158,6 +158,34 @@ async function scanScorecardWithGemini(base64Image, mediaType) {
 }
 
 // ============================================================
+// NUMBER STEPPER — +/- buttons for score and putts
+// ============================================================
+function NumberStepper({ value, onChange, min = 0, max = 20, defaultVal }) {
+  const num = (value !== '' && value !== null && value !== undefined) ? parseInt(value) : null;
+
+  const decrement = () => {
+    if (num === null) return;
+    const next = num - 1;
+    if (next < min) { onChange(''); return; }
+    onChange(String(next));
+  };
+
+  const increment = () => {
+    if (num === null) { onChange(String(defaultVal ?? min)); return; }
+    if (num >= max) return;
+    onChange(String(num + 1));
+  };
+
+  return (
+    <div className="stepper">
+      <button className="stepper-btn" onClick={decrement}>−</button>
+      <span className="stepper-val">{num !== null ? num : '—'}</span>
+      <button className="stepper-btn" onClick={increment}>+</button>
+    </div>
+  );
+}
+
+// ============================================================
 // HOLE CARD
 // ============================================================
 function HoleCard({ hole, onChange, isManual }) {
@@ -208,15 +236,13 @@ function HoleCard({ hole, onChange, isManual }) {
           <div className="stat-row" style={{ marginTop: 12 }}>
             <div className="stat-item">
               <label>Score</label>
-              <input type="number" className="score-input" value={hole.score}
-                min={1} max={15} placeholder={hole.par}
-                onChange={e => onChange({ score: e.target.value })} />
+              <NumberStepper value={hole.score} min={1} max={15} defaultVal={hole.par}
+                onChange={v => onChange({ score: v })} />
             </div>
             <div className="stat-item">
               <label>Putts</label>
-              <input type="number" className="score-input" value={hole.putts}
-                min={0} max={10} placeholder="0"
-                onChange={e => onChange({ putts: e.target.value })} />
+              <NumberStepper value={hole.putts} min={0} max={10} defaultVal={1}
+                onChange={v => onChange({ putts: v })} />
             </div>
           </div>
 
