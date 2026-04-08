@@ -1,15 +1,25 @@
 // Firebase configuration for Grady GolfTrack
-// To set up:
-// 1. Go to https://console.firebase.google.com
-// 2. Create a project (or use an existing one)
-// 3. Add a Web app — copy the firebaseConfig values below
-// 4. Enable Firestore Database (Build → Firestore Database → Create → Start in test mode)
-// 5. Enable Authentication (Build → Authentication → Get Started → Google → Enable)
-// 6. Replace the placeholder values below with your real config, then redeploy
+// Shared family database — no accounts needed, everyone reads and writes together.
+//
+// Setup (one time):
+// 1. Go to https://console.firebase.google.com → Create a project
+// 2. Build → Firestore Database → Create database → Start in test mode
+// 3. Project Settings (gear icon) → Your apps → Add web app → copy firebaseConfig values below
+// 4. In Firestore → Rules tab, paste and publish:
+//
+//    rules_version = '2';
+//    service cloud.firestore {
+//      match /databases/{database}/documents {
+//        match /{document=**} {
+//          allow read, write: if true;
+//        }
+//      }
+//    }
+//
+// 5. Replace the placeholder values below with your real config, then redeploy.
 
 import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
-import { getAuth } from 'firebase/auth';
 
 const firebaseConfig = {
   apiKey: "YOUR_API_KEY",
@@ -20,6 +30,7 @@ const firebaseConfig = {
   appId: "YOUR_APP_ID",
 };
 
-const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app);
-export const auth = getAuth(app);
+// Only initialize if the config has been filled in — otherwise fall back to localStorage
+const isConfigured = firebaseConfig.projectId !== "YOUR_PROJECT_ID";
+
+export const db = isConfigured ? getFirestore(initializeApp(firebaseConfig)) : null;
