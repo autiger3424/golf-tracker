@@ -772,9 +772,115 @@ function AnalysisScreen({ round, onSave, onNewRound, saved }) {
 }
 
 // ============================================================
+// EDIT ROUND SCREEN
+// ============================================================
+function EditRoundScreen({ round, onSave, onCancel }) {
+  const [date, setDate] = React.useState(round.date.slice(0, 10));
+  const [roundType, setRoundType] = React.useState(round.roundType);
+  const [playerName, setPlayerName] = React.useState(round.playerName || '');
+  const [holes, setHoles] = React.useState(round.holes.map(h => ({ ...h })));
+
+  const handleHoleChange = (index, updates) => {
+    setHoles(prev => {
+      const next = [...prev];
+      next[index] = { ...next[index], ...updates };
+      return next;
+    });
+  };
+
+  const handleSave = () => {
+    onSave({
+      ...round,
+      date: new Date(date + 'T12:00:00').toISOString(),
+      roundType,
+      playerName,
+      holes,
+    });
+  };
+
+  const stats = calcStats(holes);
+
+  return (
+    <div>
+      <div className="round-summary-bar">
+        <div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 2 }}>
+            {round.courseName} · {round.tee}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span className="round-score-big">{stats?.totalScore ?? '—'}</span>
+            {stats?.scoreDiff !== undefined && stats.scoreDiff !== null && (
+              <span className={`vs-par ${scoreDiffClass(stats.scoreDiff)}`}>
+                {scoreDiffLabel(stats.scoreDiff)}
+              </span>
+            )}
+          </div>
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+            {stats?.holesPlayed ?? 0}/18 holes
+          </div>
+          {stats && (
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)', marginTop: 2 }}>
+              {stats.fwPct !== null ? 'FW ' + stats.fwPct + '%' : ''}{stats.girPct !== null ? ' · GIR ' + stats.girPct + '%' : ''}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="screen" style={{ paddingTop: 12 }}>
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card-title">Round Details</div>
+
+          <div className="form-group" style={{ marginBottom: 12 }}>
+            <label className="form-label">Date</label>
+            <input className="form-input" type="date" value={date}
+              onChange={e => setDate(e.target.value)} />
+          </div>
+
+          <div className="form-group" style={{ marginBottom: 12 }}>
+            <label className="form-label">Player Name</label>
+            <input className="form-input" type="text" value={playerName}
+              placeholder="Player name"
+              onChange={e => setPlayerName(e.target.value)} />
+          </div>
+
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label className="form-label">Round Type</label>
+            <div className="toggle-group">
+              <button className={`toggle-btn${roundType === 'practice' ? ' active' : ''}`}
+                onClick={() => setRoundType('practice')}>⛳ Practice</button>
+              <button className={`toggle-btn${roundType === 'competition' ? ' active competition' : ''}`}
+                onClick={() => setRoundType('competition')}>🏆 Competition</button>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+          Holes
+        </div>
+        {holes.map((hole, i) => (
+          <HoleCard key={hole.number} hole={hole} isManual={round.isManual}
+            onChange={(updates) => handleHoleChange(i, updates)} />
+        ))}
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+          <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleSave}>
+            💾 Save Changes
+          </button>
+          <button className="btn btn-secondary" style={{ flex: 1 }} onClick={onCancel}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // HISTORY SCREEN
 // ============================================================
-function HistoryScreen({ rounds, onViewRound }) {
+function HistoryScreen({ rounds, onViewRound, onEdit }) {
   const [filter, setFilter] = React.useState('all');
   const [expandedId, setExpandedId] = React.useState(null);
 
@@ -889,10 +995,16 @@ function HistoryScreen({ rounds, onViewRound }) {
                     <span>+1: {st.breakdown.bogey}</span>
                     <span>+2+: {st.breakdown.double + st.breakdown.worse}</span>
                   </div>
-                  <button className="btn btn-secondary btn-sm"
-                    onClick={e => { e.stopPropagation(); onViewRound(r); }}>
-                    View Full Analysis
-                  </button>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button className="btn btn-secondary btn-sm"
+                      onClick={e => { e.stopPropagation(); onViewRound(r); }}>
+                      View Analysis
+                    </button>
+                    <button className="btn btn-secondary btn-sm"
+                      onClick={e => { e.stopPropagation(); onEdit(r); }}>
+                      ✏️ Edit Round
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -915,6 +1027,7 @@ export default function App() {
   const [currentRound, setCurrentRound] = React.useState(null);
   const [roundSaved, setRoundSaved] = React.useState(false);
   const [historyRound, setHistoryRound] = React.useState(null);
+  const [editingRound, setEditingRound] = React.useState(null);
 
   const saveRounds = useCallback((rs) => {
     setRounds(rs);
@@ -989,6 +1102,19 @@ export default function App() {
     setScreen('historyAnalysis');
   };
 
+  const handleStartEdit = (r) => {
+    setEditingRound(r);
+    setHistoryRound(null);
+    setScreen('editRound');
+  };
+
+  const handleSaveEdit = (updatedRound) => {
+    const newRounds = rounds.map(r => r.id === updatedRound.id ? updatedRound : r);
+    saveRounds(newRounds);
+    setEditingRound(null);
+    setScreen('history');
+  };
+
   // Nav tabs config
   const navItems = [
     { key: 'setup', label: '⛳ New' },
@@ -1003,7 +1129,7 @@ export default function App() {
     setScreen(key);
   };
 
-  const activeNav = screen === 'historyAnalysis' ? 'analysis' : screen === 'teeSelect' ? 'setup' : screen;
+  const activeNav = screen === 'historyAnalysis' ? 'history' : screen === 'teeSelect' ? 'setup' : screen === 'editRound' ? 'history' : screen;
 
   return (
     <div>
@@ -1049,7 +1175,13 @@ export default function App() {
           saved={true} />
       )}
       {screen === 'history' && (
-        <HistoryScreen rounds={rounds} onViewRound={handleViewHistoryRound} />
+        <HistoryScreen rounds={rounds} onViewRound={handleViewHistoryRound} onEdit={handleStartEdit} />
+      )}
+      {screen === 'editRound' && editingRound && (
+        <EditRoundScreen
+          round={editingRound}
+          onSave={handleSaveEdit}
+          onCancel={() => { setEditingRound(null); setScreen('history'); }} />
       )}
     </div>
   );
