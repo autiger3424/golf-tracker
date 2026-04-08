@@ -3,6 +3,9 @@ import './App.css';
 import { COURSES } from './courses';
 import { GoogleOAuthProvider, useGoogleLogin } from '@react-oauth/google';
 import { GOOGLE_CLIENT_ID } from './config';
+import { db, auth } from './firebase';
+import { collection, doc, setDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
+import { GoogleAuthProvider as FirebaseGoogleAuthProvider, signInWithPopup, signOut as firebaseSignOut, onAuthStateChanged } from 'firebase/auth';
 
 // ============================================================
 // HELPERS
@@ -368,7 +371,7 @@ function HoleCard({ hole, onChange, isManual }) {
 // ============================================================
 // SETUP SCREEN
 // ============================================================
-function SetupScreen({ onStart, preloadCourseName }) {
+function SetupScreen({ onStart, preloadCourseName, customCourses, onSaveCustomCourse, onDeleteCustomCourse }) {
   const [playerName, setPlayerName] = React.useState(() => localStorage.getItem('golf_player_name') || '');
   const [roundType, setRoundType] = React.useState('practice');
   const [courseSearch, setCourseSearch] = React.useState('');
@@ -379,21 +382,6 @@ function SetupScreen({ onStart, preloadCourseName }) {
   const fileRef = React.useRef(null);
   const [manualCourseName, setManualCourseName] = React.useState(preloadCourseName || '');
   const [manualTeeName, setManualTeeName] = React.useState('');
-  const [customCourses, setCustomCourses] = React.useState(loadCustomCourses);
-
-  const saveCustomCourse = (course) => {
-    const existing = loadCustomCourses();
-    const filtered2 = existing.filter(c => c.id !== course.id);
-    const updated = [course, ...filtered2];
-    persistCustomCourses(updated);
-    setCustomCourses(updated);
-  };
-
-  const deleteCustomCourse = (courseId) => {
-    const updated = customCourses.filter(c => c.id !== courseId);
-    persistCustomCourses(updated);
-    setCustomCourses(updated);
-  };
 
   const allCourses = [...customCourses, ...COURSES];
   const filtered = allCourses.filter(c =>
@@ -435,7 +423,7 @@ function SetupScreen({ onStart, preloadCourseName }) {
       // Auto-save scanned course to custom courses
       if (result.courseName && result.tees?.length) {
         const courseId = 'custom_' + result.courseName.toLowerCase().replace(/[^a-z0-9]+/g, '_');
-        saveCustomCourse({
+        onSaveCustomCourse({
           id: courseId,
           name: result.courseName,
           location: '',
@@ -468,7 +456,7 @@ function SetupScreen({ onStart, preloadCourseName }) {
         tees: [tee],
         isCustom: true,
       };
-      saveCustomCourse(course);
+      onSaveCustomCourse(course);
       onStart({ playerName: playerName.trim(), roundType, course, selectedTee: tee });
     } else {
       const course = selectedCourse
@@ -566,7 +554,7 @@ function SetupScreen({ onStart, preloadCourseName }) {
               </div>
               {c.isCustom && (
                 <button className="delete-course-btn"
-                  onClick={e => { e.stopPropagation(); deleteCustomCourse(c.id); if (selectedCourse?.id === c.id) setSelectedCourse(null); }}>
+                  onClick={e => { e.stopPropagation(); onDeleteCustomCourse(c.id); if (selectedCourse?.id === c.id) setSelectedCourse(null); }}>
                   ✕
                 </button>
               )}
@@ -1324,6 +1312,9 @@ function App() {
   const [rounds, setRounds] = React.useState(() => {
     try { return JSON.parse(localStorage.getItem('golf_rounds') || '[]'); } catch { return []; }
   });
+  const [customCourses, setCustomCourses] = React.useState(loadCustomCourses);
+  const [user, setUser] = React.useState(null);
+  const [authLoading, setAuthLoading] = React.useState(true);
   const [pendingSetup, setPendingSetup] = React.useState(null);
   const [currentRound, setCurrentRound] = React.useState(null);
   const [roundSaved, setRoundSaved] = React.useState(false);
@@ -1331,10 +1322,78 @@ function App() {
   const [editingRound, setEditingRound] = React.useState(null);
   const [preloadCourse, setPreloadCourse] = React.useState(null);
 
-  const saveRounds = useCallback((rs) => {
-    setRounds(rs);
-    saveRoundsToStorage(rs);
+  // ── Firebase Auth listener ─────────────────────────────────
+  React.useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (firebaseUser) => {
+      setUser(firebaseUser);
+      setAuthLoading(false);
+    });
+    return unsub;
   }, []);
+
+  // ── Firestore real-time rounds listener ───────────────────
+  React.useEffect(() => {
+    if (!user) {
+      try { setRounds(JSON.parse(localStorage.getItem('golf_rounds') || '[]')); } catch { setRounds([]); }
+      return;
+    }
+    const unsub = onSnapshot(collection(db, 'users', user.uid, 'rounds'), (snap) => {
+      const rs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      rs.sort((a, b) => new Date(b.date) - new Date(a.date));
+      setRounds(rs);
+    });
+    return unsub;
+  }, [user]);
+
+  // ── Firestore real-time courses listener ──────────────────
+  React.useEffect(() => {
+    if (!user) {
+      setCustomCourses(loadCustomCourses());
+      return;
+    }
+    const unsub = onSnapshot(collection(db, 'users', user.uid, 'courses'), (snap) => {
+      const cs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setCustomCourses(cs);
+    });
+    return unsub;
+  }, [user]);
+
+  // ── Firebase sign in / sign out ───────────────────────────
+  const handleFirebaseSignIn = async () => {
+    try {
+      const provider = new FirebaseGoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+    } catch (e) {
+      console.error('Firebase sign-in error', e);
+    }
+  };
+
+  const handleFirebaseSignOut = async () => {
+    await firebaseSignOut(auth);
+    setCustomCourses(loadCustomCourses());
+  };
+
+  // ── Custom course handlers (lifted from SetupScreen) ──────
+  const handleSaveCustomCourse = useCallback(async (course) => {
+    if (user) {
+      try { await setDoc(doc(db, 'users', user.uid, 'courses', course.id), course); } catch (e) { console.error(e); }
+    } else {
+      const existing = loadCustomCourses();
+      const updated = [course, ...existing.filter(c => c.id !== course.id)];
+      persistCustomCourses(updated);
+      setCustomCourses(updated);
+    }
+  }, [user]);
+
+  const handleDeleteCustomCourse = useCallback(async (courseId) => {
+    if (user) {
+      try { await deleteDoc(doc(db, 'users', user.uid, 'courses', courseId)); } catch (e) { console.error(e); }
+    } else {
+      const updated = customCourses.filter(c => c.id !== courseId);
+      persistCustomCourses(updated);
+      setCustomCourses(updated);
+    }
+  }, [user, customCourses]);
 
   const handleSetupStart = (setup) => {
     setPendingSetup(setup);
@@ -1385,9 +1444,14 @@ function App() {
     });
   }, []);
 
-  const handleSaveRound = () => {
-    const newRounds = [currentRound, ...rounds];
-    saveRounds(newRounds);
+  const handleSaveRound = async () => {
+    if (user) {
+      try { await setDoc(doc(db, 'users', user.uid, 'rounds', currentRound.id), currentRound); } catch (e) { console.error(e); }
+    } else {
+      const newRounds = [currentRound, ...rounds];
+      setRounds(newRounds);
+      saveRoundsToStorage(newRounds);
+    }
     setRoundSaved(true);
   };
 
@@ -1410,9 +1474,14 @@ function App() {
     setScreen('editRound');
   };
 
-  const handleSaveEdit = (updatedRound) => {
-    const newRounds = rounds.map(r => r.id === updatedRound.id ? updatedRound : r);
-    saveRounds(newRounds);
+  const handleSaveEdit = async (updatedRound) => {
+    if (user) {
+      try { await setDoc(doc(db, 'users', user.uid, 'rounds', updatedRound.id), updatedRound); } catch (e) { console.error(e); }
+    } else {
+      const newRounds = rounds.map(r => r.id === updatedRound.id ? updatedRound : r);
+      setRounds(newRounds);
+      saveRoundsToStorage(newRounds);
+    }
     setEditingRound(null);
     setScreen('history');
   };
@@ -1446,8 +1515,26 @@ function App() {
     <div>
       <div className="app-header">
         <div className="logo">Grady <span>GolfTrack</span></div>
-        <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-          {rounds.length} round{rounds.length !== 1 ? 's' : ''}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+            {rounds.length} round{rounds.length !== 1 ? 's' : ''}
+          </div>
+          {!authLoading && (
+            user ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {user.photoURL && (
+                  <img src={user.photoURL} alt="" style={{ width: 28, height: 28, borderRadius: '50%', border: '2px solid var(--accent)' }} />
+                )}
+                <button className="btn btn-secondary btn-sm" onClick={handleFirebaseSignOut} style={{ fontSize: '0.72rem', padding: '3px 8px' }}>
+                  Sign Out
+                </button>
+              </div>
+            ) : (
+              <button className="btn btn-secondary btn-sm" onClick={handleFirebaseSignIn} style={{ fontSize: '0.72rem', padding: '3px 8px' }} title="Sign in to sync rounds across devices">
+                ☁ Sync
+              </button>
+            )
+          )}
         </div>
       </div>
 
@@ -1463,7 +1550,13 @@ function App() {
       </div>
 
       {screen === 'setup' && (
-        <SetupScreen onStart={handleSetupStart} preloadCourseName={preloadCourse} />
+        <SetupScreen
+          onStart={handleSetupStart}
+          preloadCourseName={preloadCourse}
+          customCourses={customCourses}
+          onSaveCustomCourse={handleSaveCustomCourse}
+          onDeleteCustomCourse={handleDeleteCustomCourse}
+        />
       )}
       {screen === 'teeSelect' && pendingSetup && (
         <TeeSelectScreen
