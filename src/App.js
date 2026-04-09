@@ -4,7 +4,7 @@ import { COURSES } from './courses';
 import { GoogleOAuthProvider, useGoogleLogin } from '@react-oauth/google';
 import { GOOGLE_CLIENT_ID } from './config';
 import { db } from './firebase';
-import { collection, doc, setDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
+import { collection, doc, setDoc, deleteDoc, onSnapshot, getDoc } from 'firebase/firestore';
 
 // ============================================================
 // HELPERS
@@ -935,9 +935,98 @@ function EditRoundScreen({ round, onSave, onCancel }) {
 }
 
 // ============================================================
+// ICS PARSER — parses Apple/iCloud calendar feed
+// ============================================================
+function parseICS(text) {
+  // Unfold continuation lines (CRLF or LF followed by space/tab)
+  const unfolded = text.replace(/\r\n[ \t]/g, '').replace(/\n[ \t]/g, '');
+  const lines = unfolded.split(/\r\n|\n|\r/);
+  const events = [];
+  let cur = null;
+  for (const line of lines) {
+    if (line === 'BEGIN:VEVENT') { cur = {}; continue; }
+    if (line === 'END:VEVENT' && cur) { events.push(cur); cur = null; continue; }
+    if (!cur) continue;
+    const colon = line.indexOf(':');
+    if (colon === -1) continue;
+    const key = line.substring(0, colon).split(';')[0].toUpperCase();
+    const val = line.substring(colon + 1);
+    if (key === 'SUMMARY') cur.summary = val;
+    else if (key === 'DTSTART') cur.start = parseICSDate(val);
+    else if (key === 'DTEND') cur.end = parseICSDate(val);
+    else if (key === 'DESCRIPTION') cur.description = val.replace(/\\n/g, '\n').replace(/\\,/g, ',');
+    else if (key === 'UID') cur.uid = val;
+    else if (key === 'LOCATION') cur.location = val;
+  }
+  return events;
+}
+
+function parseICSDate(val) {
+  // DATE only: 20240408
+  if (/^\d{8}$/.test(val)) {
+    return new Date(val.slice(0,4) + '-' + val.slice(4,6) + '-' + val.slice(6,8) + 'T00:00:00');
+  }
+  // DATETIME: 20240408T080000Z or 20240408T080000
+  const y = val.slice(0,4), mo = val.slice(4,6), d = val.slice(6,8);
+  const h = val.slice(9,11), mi = val.slice(11,13), s = val.slice(13,15);
+  return new Date(`${y}-${mo}-${d}T${h}:${mi}:${s}${val.endsWith('Z') ? 'Z' : ''}`);
+}
+
+// ============================================================
 // CALENDAR SCREEN
 // ============================================================
 function CalendarScreen({ onPreloadCourse }) {
+  // ── Apple Calendar state ───────────────────────────────────
+  const [appleCalUrl, setAppleCalUrl] = React.useState('');
+  const [appleUrlInput, setAppleUrlInput] = React.useState('');
+  const [appleEvents, setAppleEvents] = React.useState([]);
+  const [appleLoading, setAppleLoading] = React.useState(false);
+  const [appleError, setAppleError] = React.useState('');
+  const [appleEditing, setAppleEditing] = React.useState(false);
+
+  // Load saved Apple Calendar URL from Firestore (shared across all family devices)
+  React.useEffect(() => {
+    if (!db) return;
+    getDoc(doc(db, 'settings', 'appleCalendar')).then(snap => {
+      if (snap.exists()) {
+        const url = snap.data().url || '';
+        setAppleCalUrl(url);
+        setAppleUrlInput(url);
+      }
+    }).catch(() => {});
+  }, []);
+
+  // Fetch Apple Calendar events whenever the URL changes
+  React.useEffect(() => {
+    if (!appleCalUrl) return;
+    setAppleLoading(true);
+    setAppleError('');
+    fetch('/api/calendar/apple?url=' + encodeURIComponent(appleCalUrl))
+      .then(r => r.text())
+      .then(text => {
+        const all = parseICS(text);
+        const now = new Date();
+        const upcoming = all
+          .filter(e => e.start && e.start >= now)
+          .sort((a, b) => a.start - b.start)
+          .slice(0, 20);
+        setAppleEvents(upcoming);
+        setAppleLoading(false);
+      })
+      .catch(e => { setAppleError(e.message); setAppleLoading(false); });
+  }, [appleCalUrl]);
+
+  const saveAppleUrl = async () => {
+    const url = appleUrlInput.trim();
+    if (!url) return;
+    setAppleCalUrl(url);
+    setAppleEditing(false);
+    if (db) {
+      try { await setDoc(doc(db, 'settings', 'appleCalendar'), { url }); } catch {}
+    }
+  };
+
+  // ── Google Calendar state ──────────────────────────────────
   const [accessToken, setAccessToken] = React.useState(
     () => localStorage.getItem('google_calendar_token') || null
   );
@@ -1036,28 +1125,89 @@ function CalendarScreen({ onPreloadCourse }) {
     }
   };
 
+  const appleCalCard = (
+    <div className="card" style={{ marginBottom: 16 }}>
+      <div className="card-title">🍎 Apple Calendar</div>
+      {!appleCalUrl || appleEditing ? (
+        <>
+          <p style={{ fontSize: '0.83rem', color: 'var(--text-dim)', marginBottom: 10 }}>
+            Paste a shared iCloud calendar link to show upcoming events for everyone in the family.
+          </p>
+          <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 10 }}>
+            In Apple Calendar: tap the calendar name → Share Calendar → enable Public Calendar → Copy Link
+          </p>
+          <input className="form-input" type="text" value={appleUrlInput}
+            onChange={e => setAppleUrlInput(e.target.value)}
+            placeholder="webcal://p12-caldav.icloud.com/published/…" />
+          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+            <button className="btn btn-primary" style={{ flex: 1 }}
+              disabled={!appleUrlInput.trim()} onClick={saveAppleUrl}>
+              Save Calendar Link
+            </button>
+            {appleCalUrl && (
+              <button className="btn btn-secondary" onClick={() => { setAppleEditing(false); setAppleUrlInput(appleCalUrl); }}>
+                Cancel
+              </button>
+            )}
+          </div>
+        </>
+      ) : (
+        <>
+          {appleLoading && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--text-muted)', fontSize: '0.85rem', padding: '8px 0' }}>
+              <div className="spinner" />Loading events…
+            </div>
+          )}
+          {appleError && <div style={{ color: 'var(--red)', fontSize: '0.85rem' }}>{appleError}</div>}
+          {!appleLoading && !appleError && appleEvents.length === 0 && (
+            <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No upcoming events found.</div>
+          )}
+          {appleEvents.map((ev, i) => (
+            <div key={ev.uid || i} className="cal-event" onClick={() => {
+              const name = ev.summary.replace(/^⛳\s*Golf\s*[-–]\s*/i, '').trim();
+              if (name) onPreloadCourse(name);
+            }}>
+              <div className="cal-event-date">
+                <div style={{ fontSize: '1.15rem', fontWeight: 800, lineHeight: 1 }}>{ev.start.getDate()}</div>
+                <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 1 }}>
+                  {ev.start.toLocaleString('en-US', { month: 'short' })}
+                </div>
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 600, fontSize: '0.88rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.summary}</div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                  {ev.start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                  {ev.location ? ' · ' + ev.location : ''}
+                </div>
+              </div>
+            </div>
+          ))}
+          <button className="btn btn-secondary btn-sm" style={{ marginTop: 10 }}
+            onClick={() => setAppleEditing(true)}>
+            ✎ Change Calendar
+          </button>
+        </>
+      )}
+    </div>
+  );
+
   if (!accessToken) {
     return (
       <div className="screen">
         <div style={{ marginBottom: 20 }}>
-          <h2 style={{ marginBottom: 4 }}>Google Calendar</h2>
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-            Sync your golf schedule with Google Calendar.
-          </p>
+          <h2 style={{ marginBottom: 4 }}>Calendar</h2>
         </div>
-        <button className="btn btn-primary" style={{ marginBottom: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}
-          onClick={() => login()}>
-          <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20H24v8h11.3C33.7 32.9 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3 0 5.7 1.1 7.8 2.9l6-6C34.5 6.5 29.6 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20c11 0 20-8 20-20 0-1.3-.1-2.7-.4-4z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.5 15.3 18.9 12 24 12c3 0 5.7 1.1 7.8 2.9l6-6C34.5 6.5 29.6 4 24 4 16.3 4 9.7 8.4 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 10-1.9 13.6-5l-6.3-5.3C29.4 35.5 26.8 36 24 36c-5.2 0-9.6-3.1-11.3-7.5l-6.6 5.1C9.5 39.4 16.3 44 24 44z"/><path fill="#1976D2" d="M43.6 20H24v8h11.3c-.8 2.3-2.4 4.2-4.4 5.5l6.3 5.3C40.9 35.4 44 30.1 44 24c0-1.3-.1-2.7-.4-4z"/></svg>
-          Sign in with Google
-        </button>
-        <div className="card">
-          <div className="card-title">With Calendar sync you can:</div>
-          <ul style={{ paddingLeft: 18, lineHeight: 2.2, fontSize: '0.88rem', color: 'var(--text-dim)', margin: 0 }}>
-            <li>View upcoming golf rounds from your calendar</li>
-            <li>Tap an event to pre-load the course name on Setup</li>
-            <li>Schedule future rounds with date &amp; tee time</li>
-            <li>Add completed rounds with score summary</li>
-          </ul>
+        {appleCalCard}
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card-title">📅 Google Calendar</div>
+          <p style={{ fontSize: '0.83rem', color: 'var(--text-dim)', marginBottom: 12 }}>
+            Sign in to view upcoming rounds, schedule tee times, and add completed rounds.
+          </p>
+          <button className="btn btn-primary" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}
+            onClick={() => login()}>
+            <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20H24v8h11.3C33.7 32.9 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3 0 5.7 1.1 7.8 2.9l6-6C34.5 6.5 29.6 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20c11 0 20-8 20-20 0-1.3-.1-2.7-.4-4z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.5 15.3 18.9 12 24 12c3 0 5.7 1.1 7.8 2.9l6-6C34.5 6.5 29.6 4 24 4 16.3 4 9.7 8.4 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 10-1.9 13.6-5l-6.3-5.3C29.4 35.5 26.8 36 24 36c-5.2 0-9.6-3.1-11.3-7.5l-6.6 5.1C9.5 39.4 16.3 44 24 44z"/><path fill="#1976D2" d="M43.6 20H24v8h11.3c-.8 2.3-2.4 4.2-4.4 5.5l6.3 5.3C40.9 35.4 44 30.1 44 24c0-1.3-.1-2.7-.4-4z"/></svg>
+            Sign in with Google
+          </button>
         </div>
         {eventsError && (
           <div className="scan-status error" style={{ marginTop: 12 }}>{eventsError}</div>
@@ -1068,6 +1218,7 @@ function CalendarScreen({ onPreloadCourse }) {
 
   return (
     <div className="screen">
+      {appleCalCard}
       {/* Signed-in user header */}
       <div className="card" style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 14 }}>
         {userInfo?.picture && (
