@@ -1333,6 +1333,27 @@ function App() {
     return unsub;
   }, []);
 
+  // ── One-time migration: upload any localStorage rounds to Firestore ──
+  React.useEffect(() => {
+    if (!db) return;
+    if (localStorage.getItem('golf_migrated_to_firestore')) return;
+    try {
+      const localRounds = JSON.parse(localStorage.getItem('golf_rounds') || '[]');
+      const localCourses = JSON.parse(localStorage.getItem('golf_custom_courses') || '[]');
+      if (localRounds.length > 0) {
+        localRounds.forEach(async (round) => {
+          try { await setDoc(doc(db, 'rounds', round.id), round); } catch (e) { console.error(e); }
+        });
+      }
+      if (localCourses.length > 0) {
+        localCourses.forEach(async (course) => {
+          try { await setDoc(doc(db, 'courses', course.id), course); } catch (e) { console.error(e); }
+        });
+      }
+      localStorage.setItem('golf_migrated_to_firestore', 'true');
+    } catch (e) { console.error(e); }
+  }, []);
+
   // ── Firestore real-time courses listener ──────────────────
   React.useEffect(() => {
     if (!db) {
