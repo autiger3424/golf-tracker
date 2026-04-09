@@ -40,7 +40,7 @@ function playChime() {
       gain.connect(ctx.destination);
       osc.frequency.value = freq;
       osc.type = 'sine';
-      gain.gain.setValueAtTime(0.4, ctx.currentTime + when);
+      gain.gain.setValueAtTime(0.12, ctx.currentTime + when);
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + when + 0.8);
       osc.start(ctx.currentTime + when);
       osc.stop(ctx.currentTime + when + 0.8);
@@ -256,13 +256,13 @@ function DrillCard({ drill, onEdit, onAdd, onDelete, onStartTimer, compact }) {
       <div style={{ display: 'flex', gap: 6, flexShrink: 0, alignItems: 'center' }}>
         <button
           onClick={() => onStartTimer(drill)}
-          className="btn btn-sm"
-          style={{ minWidth: 36, minHeight: 36, padding: '0 8px', fontSize: 14 }}
-          title="Start timer"
+          className="btn btn-primary btn-sm"
+          style={{ minWidth: 52, minHeight: 36, padding: '0 10px', fontSize: 13, fontWeight: 700 }}
+          title="Start timer for this drill"
         >
-          ▶
+          ▶ Start
         </button>
-        <button onClick={() => onEdit(drill)} className="btn btn-sm" style={{ minWidth: 48, minHeight: 36 }}>
+        <button onClick={() => onEdit(drill)} className="btn btn-sm" style={{ minWidth: 44, minHeight: 36 }}>
           Edit
         </button>
         <button
@@ -689,10 +689,10 @@ function DayPlanner({
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="btn btn-secondary btn-sm" onClick={loadStandard} style={{ flex: 1, minHeight: 36, fontSize: 12 }}>
-            Standard Day {(stdDay % STANDARD_PLANS.length) + 1}
+            Load Standard Plan
           </button>
           <button className="btn btn-secondary btn-sm" onClick={loadElite} style={{ flex: 1, minHeight: 36, fontSize: 12 }}>
-            Elite Day {(eliteDay % ELITE_PLANS.length) + 1}
+            Load Elite Plan
           </button>
         </div>
       </div>
