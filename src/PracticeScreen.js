@@ -78,7 +78,7 @@ function getWeekDates(referenceDate) {
 
 // ─── SortableScheduleItem ─────────────────────────────────────────────────────
 
-function SortableScheduleItem({ id, drill, completed, isToday, onToggleComplete, onRemove, onStartTimer }) {
+function SortableScheduleItem({ id, drill, completed, onToggleComplete, onRemove, onStartTimer }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -144,28 +144,26 @@ function SortableScheduleItem({ id, drill, completed, isToday, onToggleComplete,
         </button>
       )}
 
-      {/* Check button (today only) */}
-      {isToday && (
-        <button
-          onClick={() => onToggleComplete(drill.id)}
-          style={{
-            background: 'none',
-            border: `2px solid ${completed ? 'var(--accent)' : 'var(--border)'}`,
-            borderRadius: '50%',
-            width: 30,
-            height: 30,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: 'pointer',
-            color: completed ? 'var(--accent)' : 'var(--text-muted)',
-            flexShrink: 0,
-            fontSize: 14,
-          }}
-        >
-          {completed ? '✓' : ''}
-        </button>
-      )}
+      {/* Check button */}
+      <button
+        onClick={() => onToggleComplete(drill.id)}
+        style={{
+          background: 'none',
+          border: `2px solid ${completed ? 'var(--accent)' : 'var(--border)'}`,
+          borderRadius: '50%',
+          width: 30,
+          height: 30,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: 'pointer',
+          color: completed ? 'var(--accent)' : 'var(--text-muted)',
+          flexShrink: 0,
+          fontSize: 14,
+        }}
+      >
+        {completed ? '✓' : ''}
+      </button>
 
       {/* Remove button */}
       <button
@@ -586,10 +584,10 @@ function DayPlanner({
   drillsById,
   scheduleIds,
   completionIds,
-  isToday,
   onClose,
   onUpdateSchedule,
   onToggleComplete,
+  onStartTimer,
 }) {
   const [search, setSearch] = React.useState('');
   const [categoryFilter, setCategoryFilter] = React.useState(null);
@@ -702,14 +700,14 @@ function DayPlanner({
         {/* Schedule section */}
         <div style={{ marginTop: 16, marginBottom: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-            <div style={{ fontWeight: 700, color: 'var(--text)', fontSize: 15 }}>Today's Schedule</div>
+            <div style={{ fontWeight: 700, color: 'var(--text)', fontSize: 15 }}>Schedule</div>
             <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
               {scheduleIds.length} drills · {totalMins} min
             </div>
           </div>
 
-          {/* Progress bar (today only) */}
-          {isToday && scheduleIds.length > 0 && (
+          {/* Progress bar */}
+          {scheduleIds.length > 0 && (
             <div style={{
               height: 6, background: 'var(--border)', borderRadius: 3, marginBottom: 10, overflow: 'hidden',
             }}>
@@ -724,7 +722,7 @@ function DayPlanner({
           )}
 
           {/* Celebration */}
-          {isToday && allComplete && (
+          {allComplete && (
             <div style={{
               background: 'rgba(76,175,80,0.12)',
               border: '1px solid var(--accent)',
@@ -756,9 +754,9 @@ function DayPlanner({
                       id={id}
                       drill={drill}
                       completed={completionIds.includes(id)}
-                      isToday={isToday}
-                      onToggleComplete={onToggleComplete}
+                      onToggleComplete={(drillId) => onToggleComplete(drillId, key)}
                       onRemove={removeDrill}
+                      onStartTimer={onStartTimer ? (d) => onStartTimer(d, scheduleIds.indexOf(d.id), scheduleIds) : null}
                     />
                   );
                 })}
@@ -839,7 +837,7 @@ function DayPlanner({
 
 // ─── Timer Bar ────────────────────────────────────────────────────────────────
 
-function TimerBar({ timer, scheduleIds, drillsById, onUpdate, onClear }) {
+function TimerBar({ timer, fallbackScheduleIds, drillsById, onUpdate, onClear }) {
   const drill = timer ? drillsById[timer.drillId] : null;
 
   React.useEffect(() => {
@@ -847,6 +845,7 @@ function TimerBar({ timer, scheduleIds, drillsById, onUpdate, onClear }) {
     const interval = setInterval(() => {
       onUpdate(prev => {
         if (!prev) return prev;
+        const scheduleIds = prev.scheduleIds || fallbackScheduleIds;
         const next = prev.remaining - 1;
         if (next <= 0) {
           playChime();
@@ -873,7 +872,7 @@ function TimerBar({ timer, scheduleIds, drillsById, onUpdate, onClear }) {
       });
     }, 1000);
     return () => clearInterval(interval);
-  }, [timer, onUpdate, scheduleIds, drillsById]);
+  }, [timer, onUpdate, fallbackScheduleIds, drillsById]);
 
   if (!timer || !drill) return null;
 
@@ -1079,8 +1078,8 @@ export default function PracticeScreen() {
 
   // ── Toggle completion ───────────────────────────────────────────────────────
 
-  async function toggleComplete(drillId) {
-    const key = dateKey(today());
+  async function toggleComplete(drillId, dayKey) {
+    const key = dayKey || dateKey(today());
     const current = completions[key] || [];
     const next = current.includes(drillId)
       ? current.filter(id => id !== drillId)
@@ -1174,13 +1173,14 @@ export default function PracticeScreen() {
 
   // ── Start timer ─────────────────────────────────────────────────────────────
 
-  function startTimer(drill, scheduleIndex) {
+  function startTimer(drill, scheduleIndex, planScheduleIds) {
     setTimer({
       drillId: drill.id,
       totalSecs: drill.duration * 60,
       remaining: drill.duration * 60,
       paused: false,
       scheduleIndex: scheduleIndex != null ? scheduleIndex : null,
+      scheduleIds: planScheduleIds || null,
     });
   }
 
@@ -1209,7 +1209,6 @@ export default function PracticeScreen() {
   const todaySchedule = schedules[todayKey] || [];
   // eslint-disable-next-line no-unused-vars
   const todayCompletions = completions[todayKey] || [];
-  const isSelectedToday = selectedDate && isSameDay(selectedDate, today());
 
   return (
     <div className="screen" style={{ paddingBottom: timer ? 140 : 80 }}>
@@ -1222,10 +1221,10 @@ export default function PracticeScreen() {
           drillsById={drillsById}
           scheduleIds={schedules[dateKey(selectedDate)] || []}
           completionIds={completions[dateKey(selectedDate)] || []}
-          isToday={isSelectedToday}
           onClose={() => setSelectedDate(null)}
           onUpdateSchedule={updateSchedule}
           onToggleComplete={toggleComplete}
+          onStartTimer={startTimer}
         />
       )}
 
@@ -1420,7 +1419,7 @@ export default function PracticeScreen() {
       {/* Timer bar */}
       <TimerBar
         timer={timer}
-        scheduleIds={todaySchedule}
+        fallbackScheduleIds={todaySchedule}
         drillsById={drillsById}
         onUpdate={setTimer}
         onClear={() => setTimer(null)}
