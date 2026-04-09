@@ -1535,8 +1535,7 @@ function WatchLiveCard() {
           style={{ width: '100%', minHeight: 44 }}
         >
           Watch Live
-          </button>
-        </div>
+        </button>
       </div>
     </div>
   );
