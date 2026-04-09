@@ -1,7 +1,8 @@
 import React, { useCallback } from 'react';
 import './App.css';
 import { COURSES } from './courses';
-import { GoogleOAuthProvider, useGoogleLogin } from '@react-oauth/google';
+import { GoogleOAuthProvider } from '@react-oauth/google';
+// import { useGoogleLogin } from '@react-oauth/google'; // archived with Google Calendar
 import { GOOGLE_CLIENT_ID } from './config';
 import { db } from './firebase';
 import { collection, doc, setDoc, deleteDoc, onSnapshot, getDoc } from 'firebase/firestore';
@@ -162,9 +163,9 @@ async function scanScorecardWithGemini(base64Image, mediaType) {
 }
 
 // ============================================================
-// GOOGLE CALENDAR HELPER — add a completed round as a calendar event
+// GOOGLE CALENDAR HELPER — archived, uncomment to restore
 // ============================================================
-async function addRoundToCalendar(round, stats) {
+/* async function addRoundToCalendar(round, stats) {
   const token = localStorage.getItem('google_calendar_token');
   if (!token) return { ok: false, msg: 'Not signed in to Google' };
   try {
@@ -198,7 +199,7 @@ async function addRoundToCalendar(round, stats) {
   } catch (e) {
     return { ok: false, msg: e.message };
   }
-}
+} */
 
 // ============================================================
 // NUMBER STEPPER — +/- buttons for score and putts
