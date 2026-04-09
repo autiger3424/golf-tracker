@@ -699,11 +699,8 @@ function DayPlanner({
 
         {/* Schedule section */}
         <div style={{ marginTop: 16, marginBottom: 20 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <div style={{ marginBottom: 10 }}>
             <div style={{ fontWeight: 700, color: 'var(--text)', fontSize: 15 }}>Schedule</div>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-              {scheduleIds.length} drills · {totalMins} min
-            </div>
           </div>
 
           {/* Progress bar */}
