@@ -178,6 +178,7 @@ export default function LiveViewer({ liveId }) {
         if (!snap.exists()) { setNotFound(true); setLoading(false); return; }
 
         const d = snap.data();
+        console.log('Live round updated:', d);
 
         // Detect newly completed holes for toasts
         if (prevHolesRef.current) {
