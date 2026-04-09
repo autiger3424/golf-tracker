@@ -1,6 +1,6 @@
 import React from 'react';
 import { db } from './firebase';
-import { collection, doc, setDoc, onSnapshot, getDoc, deleteDoc } from 'firebase/firestore';
+import { collection, doc, setDoc, onSnapshot, deleteDoc } from 'firebase/firestore';
 import { DRILLS, CATEGORIES, CATEGORY_COLORS, STANDARD_PLANS, ELITE_PLANS } from './drills';
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
@@ -1207,6 +1207,7 @@ export default function PracticeScreen() {
 
   const todayKey = dateKey(today());
   const todaySchedule = schedules[todayKey] || [];
+  // eslint-disable-next-line no-unused-vars
   const todayCompletions = completions[todayKey] || [];
   const isSelectedToday = selectedDate && isSameDay(selectedDate, today());
 
