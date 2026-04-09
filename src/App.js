@@ -1145,9 +1145,6 @@ function CalendarScreen({ onPreloadCourse }) {
       if (!eventsByDate[key]) eventsByDate[key] = [];
       eventsByDate[key].push(ev);
     });
-    // Also include past events for calendar view
-    const allEvents = [...appleEvents];
-
     const cells = [];
     for (let i = 0; i < firstDow; i++) cells.push(null);
     for (let d = 1; d <= daysInMonth; d++) cells.push(d);
