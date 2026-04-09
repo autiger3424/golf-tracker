@@ -1514,25 +1514,27 @@ function WatchLiveCard() {
   return (
     <div style={{ padding: '0 16px 16px' }}>
       <div className="card" style={{ padding: '14px 16px' }}>
-        <div style={{ fontWeight: 700, color: 'var(--text)', marginBottom: 10, fontSize: 14 }}>
-          👁 Watch a Live Round
+        <div style={{ fontWeight: 700, color: 'var(--text)', marginBottom: 4, fontSize: 14 }}>
+          Watch a Live Round
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input
-            className="form-input"
-            placeholder="Enter live code e.g. GRADY-APR8-X4K2"
-            value={code}
-            onChange={e => setCode(e.target.value.toUpperCase())}
-            onKeyDown={e => e.key === 'Enter' && handleWatch()}
-            style={{ flex: 1, fontSize: 13, fontFamily: 'monospace' }}
-          />
-          <button
-            className="btn btn-primary"
-            onClick={handleWatch}
-            disabled={!code.trim()}
-            style={{ flexShrink: 0, minHeight: 44, minWidth: 72 }}
-          >
-            Watch
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
+          Enter the code shared by the player
+        </div>
+        <input
+          className="form-input"
+          placeholder="e.g. GRADY-APR8-X4K2"
+          value={code}
+          onChange={e => setCode(e.target.value.toUpperCase())}
+          onKeyDown={e => e.key === 'Enter' && handleWatch()}
+          style={{ width: '100%', fontSize: 15, fontFamily: 'monospace', letterSpacing: 1, marginBottom: 10 }}
+        />
+        <button
+          className="btn btn-primary"
+          onClick={handleWatch}
+          disabled={!code.trim()}
+          style={{ width: '100%', minHeight: 44 }}
+        >
+          Watch Live
           </button>
         </div>
       </div>
