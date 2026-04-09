@@ -2,6 +2,7 @@ import React, { useCallback } from 'react';
 import './App.css';
 import { COURSES } from './courses';
 import PracticeScreen from './PracticeScreen';
+import LiveViewer from './LiveViewer';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 // import { useGoogleLogin } from '@react-oauth/google'; // archived with Google Calendar
 import { GOOGLE_CLIENT_ID } from './config';
@@ -13,6 +14,17 @@ import { collection, doc, setDoc, deleteDoc, onSnapshot, getDoc } from 'firebase
 // ============================================================
 function genId() {
   return Date.now().toString(36) + Math.random().toString(36).substr(2);
+}
+
+function generateLiveId(playerName, date) {
+  const name = (playerName || 'PLAYER').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 8);
+  const d = new Date(date);
+  const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  const dateStr = months[d.getMonth()] + d.getDate();
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let rand = '';
+  for (let i = 0; i < 4; i++) rand += chars[Math.floor(Math.random() * chars.length)];
+  return `${name}-${dateStr}-${rand}`;
 }
 
 function getTeeColor(color) {
@@ -622,11 +634,38 @@ function TeeSelectScreen({ course, onSelectTee, onBack }) {
 // ============================================================
 // ROUND SCREEN
 // ============================================================
-function RoundScreen({ round, onUpdateHole, onFinish, isManual }) {
+function RoundScreen({ round, onUpdateHole, onFinish, isManual, isLive, liveId, onToggleLive, showSharePanel, onShowShare, onHideShare }) {
   const stats = calcStats(round.holes);
+  const [copied, setCopied] = React.useState(false);
+
+  const liveUrl = liveId
+    ? `${window.location.origin}${window.location.pathname}#/live/${liveId}`
+    : '';
+
+  function copyLink() {
+    if (!liveUrl) return;
+    navigator.clipboard.writeText(liveUrl).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {});
+  }
+
+  function shareLink() {
+    if (!liveUrl) return;
+    if (navigator.share) {
+      navigator.share({
+        title: `${round.playerName} is playing live golf`,
+        text: `Follow ${round.playerName}'s round at ${round.courseName} — Live code: ${liveId}`,
+        url: liveUrl,
+      }).catch(() => {});
+    } else {
+      copyLink();
+    }
+  }
 
   return (
     <div>
+      {/* Summary bar */}
       <div className="round-summary-bar">
         <div>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 2 }}>
@@ -639,19 +678,85 @@ function RoundScreen({ round, onUpdateHole, onFinish, isManual }) {
                 {scoreDiffLabel(stats.scoreDiff)}
               </span>
             )}
+            {isLive && <span className="live-badge">● LIVE</span>}
           </div>
         </div>
-        <div style={{ textAlign: 'right' }}>
+        <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
             {stats?.holesPlayed ?? 0}/18 holes
           </div>
           {stats && (
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)', marginTop: 2 }}>
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)' }}>
               {stats.fwPct !== null ? 'FW ' + stats.fwPct + '%' : ''}{stats.girPct !== null ? ' · GIR ' + stats.girPct + '%' : ''}
             </div>
           )}
+          <button
+            onClick={onToggleLive}
+            style={{
+              background: isLive ? 'rgba(255,77,79,0.15)' : 'rgba(76,175,80,0.12)',
+              border: `1px solid ${isLive ? '#ff4d4f' : 'var(--accent)'}`,
+              color: isLive ? '#ff4d4f' : 'var(--accent)',
+              borderRadius: 20, padding: '4px 10px',
+              fontSize: 11, fontWeight: 700, cursor: 'pointer',
+            }}
+          >
+            {isLive ? '⏹ Stop Live' : '📡 Go Live'}
+          </button>
         </div>
       </div>
+
+      {/* Share panel (full) */}
+      {isLive && showSharePanel && (
+        <div style={{
+          background: 'var(--surface)', borderBottom: '2px solid var(--accent)',
+          padding: '14px 16px', position: 'relative',
+        }}>
+          <button
+            onClick={onHideShare}
+            style={{ position: 'absolute', top: 10, right: 14, background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 20, cursor: 'pointer', lineHeight: 1 }}
+          >×</button>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>Share with spectators</div>
+          <div style={{ fontSize: 34, fontWeight: 900, color: 'var(--accent)', letterSpacing: 3, fontFamily: 'monospace', marginBottom: 10 }}>
+            {liveId}
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 12, wordBreak: 'break-all' }}>
+            {liveUrl}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={copyLink}
+              style={shareBtnStyle('var(--border)', 'var(--text)')}
+            >
+              {copied ? '✓ Copied!' : '📋 Copy Link'}
+            </button>
+            <button
+              onClick={shareLink}
+              style={shareBtnStyle('var(--accent)', 'var(--accent)')}
+            >
+              📤 Share
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Collapsed live bar (panel is hidden) */}
+      {isLive && !showSharePanel && (
+        <div style={{
+          background: 'rgba(76,175,80,0.07)',
+          borderBottom: '1px solid rgba(76,175,80,0.2)',
+          padding: '7px 16px',
+          display: 'flex', alignItems: 'center', gap: 10,
+        }}>
+          <span className="live-badge">● LIVE</span>
+          <span style={{ fontSize: 12, color: 'var(--text-muted)', flex: 1, fontFamily: 'monospace', letterSpacing: 1 }}>{liveId}</span>
+          <button
+            onClick={onShowShare}
+            style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 12, cursor: 'pointer', fontWeight: 700 }}
+          >
+            Share ↗
+          </button>
+        </div>
+      )}
 
       <div className="screen" style={{ paddingTop: 12 }}>
         {round.holes.map((hole, i) => (
@@ -664,6 +769,14 @@ function RoundScreen({ round, onUpdateHole, onFinish, isManual }) {
       </div>
     </div>
   );
+}
+
+function shareBtnStyle(borderColor, color) {
+  return {
+    flex: 1, padding: '10px 0', borderRadius: 10,
+    border: `1px solid ${borderColor}`,
+    background: 'none', color, fontSize: 13, fontWeight: 700, cursor: 'pointer',
+  };
 }
 
 // ============================================================
@@ -1390,6 +1503,44 @@ function HistoryScreen({ rounds, onViewRound, onEdit }) {
 }
 
 // ============================================================
+// WATCH LIVE CARD
+// ============================================================
+function WatchLiveCard() {
+  const [code, setCode] = React.useState('');
+  function handleWatch() {
+    const clean = code.trim().toUpperCase().replace(/\s+/g, '');
+    if (clean) window.location.hash = '#/live/' + clean;
+  }
+  return (
+    <div style={{ padding: '0 16px 16px' }}>
+      <div className="card" style={{ padding: '14px 16px' }}>
+        <div style={{ fontWeight: 700, color: 'var(--text)', marginBottom: 10, fontSize: 14 }}>
+          👁 Watch a Live Round
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input
+            className="form-input"
+            placeholder="Enter live code e.g. GRADY-APR8-X4K2"
+            value={code}
+            onChange={e => setCode(e.target.value.toUpperCase())}
+            onKeyDown={e => e.key === 'Enter' && handleWatch()}
+            style={{ flex: 1, fontSize: 13, fontFamily: 'monospace' }}
+          />
+          <button
+            className="btn btn-primary"
+            onClick={handleWatch}
+            disabled={!code.trim()}
+            style={{ flexShrink: 0, minHeight: 44, minWidth: 72 }}
+          >
+            Watch
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // MAIN APP
 // ============================================================
 function App() {
@@ -1404,6 +1555,15 @@ function App() {
   const [historyRound, setHistoryRound] = React.useState(null);
   const [editingRound, setEditingRound] = React.useState(null);
   const [preloadCourse, setPreloadCourse] = React.useState(null);
+
+  // ── Live round state ───────────────────────────────────────
+  const [isLive, setIsLive] = React.useState(false);
+  const [liveId, setLiveId] = React.useState(null);
+  const [showSharePanel, setShowSharePanel] = React.useState(false);
+  const isLiveRef = React.useRef(false);
+  const liveIdRef = React.useRef(null);
+  React.useEffect(() => { isLiveRef.current = isLive; }, [isLive]);
+  React.useEffect(() => { liveIdRef.current = liveId; }, [liveId]);
 
   // ── Firestore real-time rounds listener (shared family db) ─
   React.useEffect(() => {
@@ -1452,6 +1612,25 @@ function App() {
     });
     return unsub;
   }, []);
+
+  // ── Write live round to Firebase on every hole update ─────
+  React.useEffect(() => {
+    if (!isLive || !liveId || !currentRound || !db) return;
+    const currentHoleObj = currentRound.holes.find(h => h.score === '' || h.score === null || h.score === undefined);
+    const liveData = {
+      playerName: currentRound.playerName,
+      courseName: currentRound.courseName,
+      tee: currentRound.tee,
+      roundType: currentRound.roundType,
+      holes: currentRound.holes,
+      currentHole: currentHoleObj ? currentHoleObj.number : 18,
+      lastUpdate: Date.now(),
+      isComplete: false,
+      isLive: true,
+      startTime: currentRound.date,
+    };
+    setDoc(doc(db, 'live_rounds', liveId), liveData).catch(console.error);
+  }, [currentRound, isLive, liveId]);
 
   // ── Custom course handlers ─────────────────────────────────
   const handleSaveCustomCourse = useCallback(async (course) => {
@@ -1524,6 +1703,42 @@ function App() {
     });
   }, []);
 
+  const handleToggleLive = async () => {
+    if (isLiveRef.current) {
+      // Stop broadcasting
+      setIsLive(false);
+      setShowSharePanel(false);
+      if (liveIdRef.current && db) {
+        setDoc(doc(db, 'live_rounds', liveIdRef.current), { isLive: false }, { merge: true }).catch(console.error);
+      }
+    } else {
+      // Start broadcasting
+      if (!currentRound) return;
+      const newId = generateLiveId(currentRound.playerName, currentRound.date);
+      setLiveId(newId);
+      liveIdRef.current = newId;
+      setIsLive(true);
+      isLiveRef.current = true;
+      setShowSharePanel(true);
+      if (db) {
+        const currentHoleObj = currentRound.holes.find(h => h.score === '' || h.score === null || h.score === undefined);
+        const liveData = {
+          playerName: currentRound.playerName,
+          courseName: currentRound.courseName,
+          tee: currentRound.tee,
+          roundType: currentRound.roundType,
+          holes: currentRound.holes,
+          currentHole: currentHoleObj ? currentHoleObj.number : 1,
+          lastUpdate: Date.now(),
+          isComplete: false,
+          isLive: true,
+          startTime: currentRound.date,
+        };
+        setDoc(doc(db, 'live_rounds', newId), liveData).catch(console.error);
+      }
+    }
+  };
+
   const handleSaveRound = async () => {
     if (db) {
       try { await setDoc(doc(db, 'rounds', currentRound.id), currentRound); } catch (e) { console.error(e); }
@@ -1531,6 +1746,11 @@ function App() {
       const newRounds = [currentRound, ...rounds];
       setRounds(newRounds);
       saveRoundsToStorage(newRounds);
+    }
+    // Mark live round complete when saving
+    if (isLiveRef.current && liveIdRef.current && db) {
+      setIsLive(false);
+      setDoc(doc(db, 'live_rounds', liveIdRef.current), { isComplete: true, isLive: false, lastUpdate: Date.now() }, { merge: true }).catch(console.error);
     }
     setRoundSaved(true);
   };
@@ -1540,6 +1760,11 @@ function App() {
     setPendingSetup(null);
     setHistoryRound(null);
     setRoundSaved(false);
+    setIsLive(false);
+    setLiveId(null);
+    setShowSharePanel(false);
+    isLiveRef.current = false;
+    liveIdRef.current = null;
     setScreen('setup');
   };
 
@@ -1613,13 +1838,16 @@ function App() {
       </div>
 
       {screen === 'setup' && (
-        <SetupScreen
-          onStart={handleSetupStart}
-          preloadCourseName={preloadCourse}
-          customCourses={customCourses}
-          onSaveCustomCourse={handleSaveCustomCourse}
-          onDeleteCustomCourse={handleDeleteCustomCourse}
-        />
+        <>
+          <SetupScreen
+            onStart={handleSetupStart}
+            preloadCourseName={preloadCourse}
+            customCourses={customCourses}
+            onSaveCustomCourse={handleSaveCustomCourse}
+            onDeleteCustomCourse={handleDeleteCustomCourse}
+          />
+          <WatchLiveCard />
+        </>
       )}
       {screen === 'teeSelect' && pendingSetup && (
         <TeeSelectScreen
@@ -1628,8 +1856,18 @@ function App() {
           onBack={() => setScreen('setup')} />
       )}
       {screen === 'round' && currentRound && (
-        <RoundScreen round={currentRound} onUpdateHole={handleUpdateHole}
-          onFinish={() => setScreen('analysis')} isManual={currentRound.isManual} />
+        <RoundScreen
+          round={currentRound}
+          onUpdateHole={handleUpdateHole}
+          onFinish={() => setScreen('analysis')}
+          isManual={currentRound.isManual}
+          isLive={isLive}
+          liveId={liveId}
+          onToggleLive={handleToggleLive}
+          showSharePanel={showSharePanel}
+          onShowShare={() => setShowSharePanel(true)}
+          onHideShare={() => setShowSharePanel(false)}
+        />
       )}
       {screen === 'analysis' && currentRound && (
         <AnalysisScreen round={currentRound} onSave={handleSaveRound} onNewRound={handleNewRound} saved={roundSaved} />
@@ -1661,6 +1899,19 @@ function App() {
 }
 
 export default function AppWrapper() {
+  const [hash, setHash] = React.useState(window.location.hash);
+
+  React.useEffect(() => {
+    const handler = () => setHash(window.location.hash);
+    window.addEventListener('hashchange', handler);
+    return () => window.removeEventListener('hashchange', handler);
+  }, []);
+
+  const liveMatch = hash.match(/^#\/live\/([A-Z0-9-]+)$/i);
+  if (liveMatch) {
+    return <LiveViewer liveId={liveMatch[1].toUpperCase()} />;
+  }
+
   return (
     <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
       <App />

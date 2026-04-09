@@ -883,3 +883,34 @@ h3 { font-size: 1rem; font-weight: 600; }
   color: white;
   flex-shrink: 0;
 }
+
+/* ======= LIVE ROUND ======= */
+.live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: rgba(82, 196, 26, 0.15);
+  color: #52c41a;
+  border: 1px solid rgba(82, 196, 26, 0.4);
+  border-radius: 20px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  animation: livePulse 1.5s ease-in-out infinite;
+  white-space: nowrap;
+}
+
+@keyframes livePulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+@keyframes subtlePulse {
+  0%, 100% { background-color: rgba(76, 175, 80, 0.08); }
+  50% { background-color: rgba(76, 175, 80, 0.18); }
+}
+
+@keyframes liveToastIn {
+  from { opacity: 0; transform: translate(-50%, -16px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
