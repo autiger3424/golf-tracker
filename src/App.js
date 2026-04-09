@@ -1578,7 +1578,7 @@ function App() {
     { key: 'analysis', label: '📊 Analysis', disabled: !currentRound },
     { key: 'history', label: '📁 History' },
     { key: 'calendar', label: '📅 Cal' },
-    { key: 'practice', label: '🏌️ Practice' },
+    { key: 'practice', label: '🏌️‍♂️ Practice' },
   ];
 
   const handleNavClick = (key) => {
