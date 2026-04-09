@@ -976,13 +976,18 @@ function parseICSDate(val) {
 // CALENDAR SCREEN
 // ============================================================
 function CalendarScreen({ onPreloadCourse }) {
-  // ── Apple Calendar state ───────────────────────────────────
+  // ── Grady Golf Calendar state ──────────────────────────────
   const [appleCalUrl, setAppleCalUrl] = React.useState('');
   const [appleUrlInput, setAppleUrlInput] = React.useState('');
   const [appleEvents, setAppleEvents] = React.useState([]);
   const [appleLoading, setAppleLoading] = React.useState(false);
   const [appleError, setAppleError] = React.useState('');
   const [appleEditing, setAppleEditing] = React.useState(false);
+  const [viewMode, setViewMode] = React.useState('list'); // 'list' | 'calendar'
+  const [calMonth, setCalMonth] = React.useState(() => {
+    const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), 1);
+  });
+  const [selectedDay, setSelectedDay] = React.useState(null);
 
   // Load saved Apple Calendar URL from Firestore (shared across all family devices)
   React.useEffect(() => {
@@ -1125,13 +1130,106 @@ function CalendarScreen({ onPreloadCourse }) {
     }
   };
 
+  // ── Monthly calendar grid renderer ────────────────────────
+  const renderMonthGrid = () => {
+    const year = calMonth.getFullYear();
+    const month = calMonth.getMonth();
+    const firstDow = new Date(year, month, 1).getDay(); // 0=Sun
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const today = new Date();
+
+    // Build a map of date-string → events for quick lookup
+    const eventsByDate = {};
+    appleEvents.forEach(ev => {
+      const key = ev.start.getFullYear() + '-' + ev.start.getMonth() + '-' + ev.start.getDate();
+      if (!eventsByDate[key]) eventsByDate[key] = [];
+      eventsByDate[key].push(ev);
+    });
+    // Also include past events for calendar view
+    const allEvents = [...appleEvents];
+
+    const cells = [];
+    for (let i = 0; i < firstDow; i++) cells.push(null);
+    for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+    const selKey = selectedDay ? year + '-' + month + '-' + selectedDay : null;
+    const dayEvents = selKey ? (eventsByDate[selKey] || []) : [];
+
+    return (
+      <>
+        {/* Month nav */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <button className="btn btn-secondary btn-sm" onClick={() => { setCalMonth(new Date(year, month - 1, 1)); setSelectedDay(null); }}>‹</button>
+          <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>
+            {calMonth.toLocaleString('en-US', { month: 'long', year: 'numeric' })}
+          </span>
+          <button className="btn btn-secondary btn-sm" onClick={() => { setCalMonth(new Date(year, month + 1, 1)); setSelectedDay(null); }}>›</button>
+        </div>
+
+        {/* Day-of-week headers */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 2, marginBottom: 4 }}>
+          {['Su','Mo','Tu','We','Th','Fr','Sa'].map(d => (
+            <div key={d} style={{ textAlign: 'center', fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700 }}>{d}</div>
+          ))}
+        </div>
+
+        {/* Day cells */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 2 }}>
+          {cells.map((d, i) => {
+            if (!d) return <div key={'e' + i} />;
+            const key = year + '-' + month + '-' + d;
+            const hasEvents = !!eventsByDate[key];
+            const isToday = today.getDate() === d && today.getMonth() === month && today.getFullYear() === year;
+            const isSelected = selectedDay === d;
+            return (
+              <div key={d} onClick={() => setSelectedDay(isSelected ? null : d)}
+                style={{
+                  textAlign: 'center', padding: '6px 2px', borderRadius: 6, cursor: hasEvents ? 'pointer' : 'default',
+                  background: isSelected ? 'var(--accent)' : isToday ? 'rgba(255,255,255,0.08)' : 'transparent',
+                  border: isToday && !isSelected ? '1px solid var(--accent)' : '1px solid transparent',
+                  position: 'relative',
+                }}>
+                <span style={{ fontSize: '0.82rem', fontWeight: isToday ? 700 : 400, color: isSelected ? '#000' : 'var(--text)' }}>{d}</span>
+                {hasEvents && (
+                  <div style={{ width: 5, height: 5, borderRadius: '50%', background: isSelected ? '#000' : 'var(--accent)', margin: '2px auto 0' }} />
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Selected day events */}
+        {selectedDay && (
+          <div style={{ marginTop: 12, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+            {dayEvents.length === 0 ? (
+              <div style={{ fontSize: '0.83rem', color: 'var(--text-muted)' }}>No events on this day.</div>
+            ) : dayEvents.map((ev, i) => (
+              <div key={i} className="cal-event" onClick={() => {
+                const name = ev.summary.replace(/^⛳\s*Golf\s*[-–]\s*/i, '').trim();
+                if (name) onPreloadCourse(name);
+              }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: '0.88rem' }}>{ev.summary}</div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                    {ev.start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                    {ev.location ? ' · ' + ev.location : ''}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </>
+    );
+  };
+
   const appleCalCard = (
     <div className="card" style={{ marginBottom: 16 }}>
-      <div className="card-title">🍎 Apple Calendar</div>
+      <div className="card-title">Grady Golf Calendar</div>
       {!appleCalUrl || appleEditing ? (
         <>
           <p style={{ fontSize: '0.83rem', color: 'var(--text-dim)', marginBottom: 10 }}>
-            Paste a shared iCloud calendar link to show upcoming events for everyone in the family.
+            Paste a shared iCloud calendar link to show events for everyone in the family.
           </p>
           <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 10 }}>
             In Apple Calendar: tap the calendar name → Share Calendar → enable Public Calendar → Copy Link
@@ -1153,36 +1251,47 @@ function CalendarScreen({ onPreloadCourse }) {
         </>
       ) : (
         <>
+          {/* List / Calendar toggle */}
+          <div className="toggle-group" style={{ marginBottom: 12 }}>
+            <button className={`toggle-btn${viewMode === 'list' ? ' active' : ''}`} onClick={() => setViewMode('list')}>☰ List</button>
+            <button className={`toggle-btn${viewMode === 'calendar' ? ' active' : ''}`} onClick={() => setViewMode('calendar')}>📅 Month</button>
+          </div>
+
           {appleLoading && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--text-muted)', fontSize: '0.85rem', padding: '8px 0' }}>
               <div className="spinner" />Loading events…
             </div>
           )}
           {appleError && <div style={{ color: 'var(--red)', fontSize: '0.85rem' }}>{appleError}</div>}
-          {!appleLoading && !appleError && appleEvents.length === 0 && (
-            <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No upcoming events found.</div>
+
+          {!appleLoading && !appleError && viewMode === 'list' && (
+            appleEvents.length === 0
+              ? <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No upcoming events found.</div>
+              : appleEvents.map((ev, i) => (
+                <div key={ev.uid || i} className="cal-event" onClick={() => {
+                  const name = ev.summary.replace(/^⛳\s*Golf\s*[-–]\s*/i, '').trim();
+                  if (name) onPreloadCourse(name);
+                }}>
+                  <div className="cal-event-date">
+                    <div style={{ fontSize: '1.15rem', fontWeight: 800, lineHeight: 1 }}>{ev.start.getDate()}</div>
+                    <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 1 }}>
+                      {ev.start.toLocaleString('en-US', { month: 'short' })}
+                    </div>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: '0.88rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.summary}</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                      {ev.start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                      {ev.location ? ' · ' + ev.location : ''}
+                    </div>
+                  </div>
+                </div>
+              ))
           )}
-          {appleEvents.map((ev, i) => (
-            <div key={ev.uid || i} className="cal-event" onClick={() => {
-              const name = ev.summary.replace(/^⛳\s*Golf\s*[-–]\s*/i, '').trim();
-              if (name) onPreloadCourse(name);
-            }}>
-              <div className="cal-event-date">
-                <div style={{ fontSize: '1.15rem', fontWeight: 800, lineHeight: 1 }}>{ev.start.getDate()}</div>
-                <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 1 }}>
-                  {ev.start.toLocaleString('en-US', { month: 'short' })}
-                </div>
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 600, fontSize: '0.88rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.summary}</div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>
-                  {ev.start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-                  {ev.location ? ' · ' + ev.location : ''}
-                </div>
-              </div>
-            </div>
-          ))}
-          <button className="btn btn-secondary btn-sm" style={{ marginTop: 10 }}
+
+          {!appleLoading && !appleError && viewMode === 'calendar' && renderMonthGrid()}
+
+          <button className="btn btn-secondary btn-sm" style={{ marginTop: 12 }}
             onClick={() => setAppleEditing(true)}>
             ✎ Change Calendar
           </button>
