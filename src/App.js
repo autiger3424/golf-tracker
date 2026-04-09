@@ -1,6 +1,7 @@
 import React, { useCallback } from 'react';
 import './App.css';
 import { COURSES } from './courses';
+import PracticeScreen from './PracticeScreen';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 // import { useGoogleLogin } from '@react-oauth/google'; // archived with Google Calendar
 import { GOOGLE_CLIENT_ID } from './config';
@@ -1577,6 +1578,7 @@ function App() {
     { key: 'analysis', label: '📊 Analysis', disabled: !currentRound },
     { key: 'history', label: '📁 History' },
     { key: 'calendar', label: '📅 Cal' },
+    { key: 'practice', label: '🏋️ Practice' },
   ];
 
   const handleNavClick = (key) => {
@@ -1650,6 +1652,9 @@ function App() {
       )}
       {screen === 'calendar' && (
         <CalendarScreen onPreloadCourse={handlePreloadCourse} />
+      )}
+      {screen === 'practice' && (
+        <PracticeScreen />
       )}
     </div>
   );
