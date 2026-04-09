@@ -390,7 +390,7 @@ function DrillModal({ drill, isNew, onSave, onReset, onDelete, onCancel }) {
 
 // ─── Stats ────────────────────────────────────────────────────────────────────
 
-function PracticeStats({ completions, drillsById }) {
+function PracticeStats({ completions, drillsById, onSelectDay }) {
   const todayDate = today();
   const weekDates = getWeekDates(todayDate);
   const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -462,19 +462,23 @@ function PracticeStats({ completions, drillsById }) {
         )}
       </div>
 
-      {/* Bar chart */}
+      {/* Bar chart — tap any day to edit */}
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 60 }}>
         {weekMinutes.map((mins, i) => {
           const isToday = isSameDay(weekDates[i], todayDate);
           const heightPct = (mins / maxMins) * 100;
           return (
-            <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+            <div
+              key={i}
+              onClick={() => onSelectDay && onSelectDay(weekDates[i])}
+              style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, cursor: 'pointer' }}
+            >
               <div style={{
                 width: '100%',
                 height: `${Math.max(heightPct * 0.5, mins > 0 ? 4 : 0)}px`,
-                background: isToday ? 'var(--accent)' : 'var(--border)',
+                background: isToday ? 'var(--accent)' : mins > 0 ? 'var(--accent-dim)' : 'var(--border)',
                 borderRadius: '3px 3px 0 0',
-                minHeight: mins > 0 ? 4 : 0,
+                minHeight: mins > 0 ? 4 : 2,
                 transition: 'height 0.3s',
               }} />
               <div style={{ fontSize: 10, color: isToday ? 'var(--accent)' : 'var(--text-muted)' }}>
@@ -483,6 +487,9 @@ function PracticeStats({ completions, drillsById }) {
             </div>
           );
         })}
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8, textAlign: 'center' }}>
+        Tap a day to edit sessions
       </div>
     </div>
   );
@@ -1275,7 +1282,7 @@ export default function PracticeScreen() {
         </div>
 
         {/* Stats */}
-        <PracticeStats completions={completions} drillsById={drillsById} />
+        <PracticeStats completions={completions} drillsById={drillsById} onSelectDay={setSelectedDate} />
       </div>
 
       {/* Library View */}
