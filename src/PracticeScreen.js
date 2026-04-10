@@ -858,17 +858,47 @@ function DayPlanner({
 
 // ─── Practice Mode Screen ─────────────────────────────────────────────────────
 
+// ── Silent audio blob URL (created once) ─────────────────────
+// Playing silent audio keeps iOS from throttling JS & enables lock screen display
+function createSilentAudioUrl() {
+  // 1-second silent WAV (PCM 8kHz mono 8-bit)
+  const sampleRate = 8000;
+  const buf = new ArrayBuffer(44 + sampleRate);
+  const v = new DataView(buf);
+  const str = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  str(0, 'RIFF'); v.setUint32(4, 36 + sampleRate, true);
+  str(8, 'WAVE'); str(12, 'fmt '); v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, sampleRate, true); v.setUint32(28, sampleRate, true);
+  v.setUint16(32, 1, true); v.setUint16(34, 8, true);
+  str(36, 'data'); v.setUint32(40, sampleRate, true);
+  for (let i = 0; i < sampleRate; i++) v.setUint8(44 + i, 128); // silence
+  return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+}
+let _silentUrl = null;
+function getSilentUrl() {
+  if (!_silentUrl) _silentUrl = createSilentAudioUrl();
+  return _silentUrl;
+}
+
+function mmss(secs) {
+  const s = Math.max(0, Math.floor(secs));
+  return `${String(Math.floor(s / 60)).padStart(2,'0')}:${String(s % 60).padStart(2,'0')}`;
+}
+
 function PracticeModeScreen({ dayKey, scheduleIds, completionIds, drillsById, onToggleComplete, onClose, onTimerChange }) {
   const [activeDrillIndex, setActiveDrillIndex] = React.useState(() => {
     const idx = scheduleIds.findIndex(id => !completionIds.includes(id));
     return idx >= 0 ? idx : 0;
   });
   // timer shape: { totalMs, adjustedMs, startTime, paused }
-  // adjustedMs = remaining ms when paused; startTime = Date.now() when started/resumed
   const [timer, setTimer] = React.useState(null);
+  // Worker-driven remaining ms (updates every 500ms even in background)
+  const [workerRemaining, setWorkerRemaining] = React.useState(null);
   const [sessionDone, setSessionDone] = React.useState(false);
-  const [, forceUpdate] = React.useReducer(x => x + 1, 0);
   const wakeLockRef = React.useRef(null);
+  const audioRef = React.useRef(null);
+  const workerRef = React.useRef(null);
 
   const activeDrillId = scheduleIds[activeDrillIndex];
   const activeDrill = activeDrillId ? drillsById[activeDrillId] : null;
@@ -878,62 +908,150 @@ function PracticeModeScreen({ dayKey, scheduleIds, completionIds, drillsById, on
     .filter(id => !completionIds.includes(id))
     .reduce((s, id) => { const dr = drillsById[id]; return s + (dr ? dr.duration : 0); }, 0);
 
+  // ── Web Worker (background-safe timer tick) ─────────────────
+  React.useEffect(() => {
+    try {
+      const w = new Worker('/timerWorker.js');
+      workerRef.current = w;
+      w.onmessage = (e) => {
+        if (e.data.type === 'tick') {
+          setWorkerRemaining(e.data.remaining);
+          // Update lock screen countdown text
+          if ('mediaSession' in navigator && navigator.mediaSession.metadata) {
+            const secs = Math.ceil(e.data.remaining / 1000);
+            navigator.mediaSession.metadata.artist = `⏱ ${mmss(secs)} remaining`;
+          }
+        }
+        if (e.data.type === 'complete') {
+          playChime();
+          setTimer(prev => prev ? { ...prev, paused: true, adjustedMs: 0 } : null);
+          setWorkerRemaining(0);
+        }
+      };
+    } catch (e) { /* Worker not supported */ }
+    return () => {
+      if (workerRef.current) { workerRef.current.postMessage({ type: 'stop' }); workerRef.current.terminate(); workerRef.current = null; }
+    };
+  }, []);
+
   // ── Wake lock helpers ───────────────────────────────────────
   const acquireWakeLock = React.useCallback(async () => {
     if (!('wakeLock' in navigator) || wakeLockRef.current) return;
     try {
       wakeLockRef.current = await navigator.wakeLock.request('screen');
       wakeLockRef.current.addEventListener('release', () => { wakeLockRef.current = null; });
-    } catch (e) { /* not supported / permission denied */ }
+    } catch (e) { /* not supported */ }
   }, []);
 
   const releaseWakeLock = React.useCallback(() => {
     if (wakeLockRef.current) { wakeLockRef.current.release().catch(() => {}); wakeLockRef.current = null; }
   }, []);
 
-  // ── Acquire / release wake lock with timer state ────────────
-  React.useEffect(() => {
-    if (timer && !timer.paused) acquireWakeLock();
-    else releaseWakeLock();
-  }, [timer, acquireWakeLock, releaseWakeLock]);
+  // ── Silent audio session (prevents JS throttle, enables lock screen) ──
+  const startAudioSession = React.useCallback(async (drillName) => {
+    try {
+      if (!audioRef.current) {
+        audioRef.current = new Audio(getSilentUrl());
+        audioRef.current.loop = true;
+        audioRef.current.volume = 0.01;
+      }
+      await audioRef.current.play();
+    } catch (e) { /* needs user interaction — already have it */ }
 
-  // Re-acquire after phone wakes up (wake locks are released on page hide)
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: drillName || 'Drill Timer',
+        artist: 'Starting…',
+        album: 'Grady GolfTrack — Practice',
+        artwork: [
+          { src: window.location.origin + '/logo192.png', sizes: '192x192', type: 'image/png' },
+          { src: window.location.origin + '/logo512.png', sizes: '512x512', type: 'image/png' },
+        ],
+      });
+      navigator.mediaSession.playbackState = 'playing';
+    }
+  }, []);
+
+  const stopAudioSession = React.useCallback(() => {
+    if (audioRef.current) { audioRef.current.pause(); }
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.metadata = null;
+      navigator.mediaSession.playbackState = 'none';
+      try { navigator.mediaSession.setActionHandler('play', null); } catch (e) {}
+      try { navigator.mediaSession.setActionHandler('pause', null); } catch (e) {}
+    }
+  }, []);
+
+  // Wire up lock screen play/pause buttons
   React.useEffect(() => {
-    const handler = () => {
-      if (document.visibilityState === 'visible') {
-        forceUpdate(); // recalculate remaining from wall clock
-        if (timer && !timer.paused) acquireWakeLock();
+    if (!('mediaSession' in navigator)) return;
+    try {
+      navigator.mediaSession.setActionHandler('play', () => {
+        setTimer(prev => prev ? { ...prev, paused: false, startTime: Date.now() } : prev);
+        if (audioRef.current) audioRef.current.play().catch(() => {});
+        if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+      });
+      navigator.mediaSession.setActionHandler('pause', () => {
+        setTimer(prev => {
+          if (!prev) return prev;
+          const adj = getRemainingMs(prev);
+          return { ...prev, paused: true, adjustedMs: adj };
+        });
+        if (audioRef.current) audioRef.current.pause();
+        if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+      });
+    } catch (e) {}
+  }, []);
+
+  // ── Re-acquire wake lock & audio on screen wake ─────────────
+  React.useEffect(() => {
+    const handler = async () => {
+      if (document.visibilityState === 'visible' && timer && !timer.paused) {
+        await acquireWakeLock();
+        if (audioRef.current) audioRef.current.play().catch(() => {});
       }
     };
     document.addEventListener('visibilitychange', handler);
     return () => document.removeEventListener('visibilitychange', handler);
   }, [timer, acquireWakeLock]);
 
-  // Release wake lock on unmount
-  React.useEffect(() => () => releaseWakeLock(), [releaseWakeLock]);
+  // Cleanup on unmount
+  React.useEffect(() => {
+    return () => {
+      releaseWakeLock();
+      stopAudioSession();
+    };
+  }, [releaseWakeLock, stopAudioSession]);
 
   // ── Auto-start timer when active drill changes ──────────────
   React.useEffect(() => {
     if (!activeDrill) return;
     const ms = activeDrill.duration * 60000;
-    setTimer({ totalMs: ms, adjustedMs: ms, startTime: Date.now(), paused: false });
+    const newTimer = { totalMs: ms, adjustedMs: ms, startTime: Date.now(), paused: false };
+    setTimer(newTimer);
+    setWorkerRemaining(ms);
+    // Start worker
+    if (workerRef.current) workerRef.current.postMessage({ type: 'start', data: { adjustedMs: ms, startTime: Date.now() } });
+    acquireWakeLock();
+    startAudioSession(activeDrill.name);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeDrillIndex]);
 
-  // ── Interval just to trigger re-renders (wall-clock based) ──
+  // ── Sync worker when timer paused/resumed ───────────────────
   React.useEffect(() => {
-    if (!timer || timer.paused) return;
-    const id = setInterval(() => {
-      const rem = getRemainingMs(timer);
-      if (rem <= 0) {
-        playChime();
-        setTimer(prev => prev ? { ...prev, paused: true, adjustedMs: 0 } : null);
-      } else {
-        forceUpdate();
-      }
-    }, 500);
-    return () => clearInterval(id);
-  }, [timer]);
+    if (!timer || !workerRef.current) return;
+    if (timer.paused) {
+      workerRef.current.postMessage({ type: 'pause', data: { adjustedMs: timer.adjustedMs, startTime: timer.startTime } });
+      releaseWakeLock();
+      if (audioRef.current) audioRef.current.pause();
+      if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+    } else {
+      workerRef.current.postMessage({ type: 'resume', data: { adjustedMs: timer.adjustedMs } });
+      acquireWakeLock();
+      if (audioRef.current) audioRef.current.play().catch(() => {});
+      if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+    }
+  }, [timer?.paused, acquireWakeLock, releaseWakeLock]); // eslint-disable-line
 
   // ── Notify parent (global banner) of timer changes ──────────
   React.useEffect(() => {
@@ -943,7 +1061,9 @@ function PracticeModeScreen({ dayKey, scheduleIds, completionIds, drillsById, on
   }, [timer, activeDrill?.name, onTimerChange]);
 
   // ── Session completion ───────────────────────────────────────
-  React.useEffect(() => { if (allComplete) setSessionDone(true); }, [allComplete]);
+  React.useEffect(() => {
+    if (allComplete) { stopAudioSession(); setSessionDone(true); }
+  }, [allComplete, stopAudioSession]);
 
   function goToIndex(idx) { if (idx < scheduleIds.length) setActiveDrillIndex(idx); }
 
@@ -970,7 +1090,8 @@ function PracticeModeScreen({ dayKey, scheduleIds, completionIds, drillsById, on
   }
 
   const progressPct = scheduleIds.length > 0 ? (completedCount / scheduleIds.length) * 100 : 0;
-  const remainingMs = getRemainingMs(timer);
+  // Prefer worker remaining (background-accurate), fall back to wall-clock
+  const remainingMs = workerRemaining !== null ? workerRemaining : getRemainingMs(timer);
   const remainingSecs = Math.ceil(remainingMs / 1000);
   const isAlmostDone = remainingSecs <= 30 && remainingSecs > 0;
 
