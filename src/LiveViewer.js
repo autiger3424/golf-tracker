@@ -156,6 +156,9 @@ export default function LiveViewer({ liveId }) {
   const [flashHole, setFlashHole] = React.useState(null);
   const prevHolesRef = React.useRef(null);
   const soundEnabledRef = React.useRef(false);
+  // Debounce notification toasts so rapid score edits don't fire multiple alerts
+  const pendingToastRef = React.useRef(null);
+  const toastDebounceRef = React.useRef(null);
 
   // Keep ref in sync so the Firebase callback can read it
   React.useEffect(() => { soundEnabledRef.current = soundEnabled; }, [soundEnabled]);
@@ -180,13 +183,30 @@ export default function LiveViewer({ liveId }) {
         const d = snap.data();
         console.log('Live round updated:', d);
 
-        // Detect newly completed holes for toasts
+        // Apply score data immediately (fast display)
+        setData(d);
+        setLoading(false);
+        setLastUpdateMs(d.lastUpdate || Date.now());
+
+        // Detect newly completed holes for toasts — debounced 3s
+        // so rapid edits don't fire multiple notifications
         if (prevHolesRef.current) {
+          const newlyCompleted = [];
           d.holes.forEach((hole, i) => {
             const prev = prevHolesRef.current[i];
             const wasEmpty = !prev || prev.score === '' || prev.score === null || prev.score === undefined;
             const nowFilled = hole.score !== '' && hole.score !== null && hole.score !== undefined;
-            if (wasEmpty && nowFilled) {
+            if (wasEmpty && nowFilled) newlyCompleted.push(hole);
+          });
+
+          if (newlyCompleted.length > 0) {
+            // Store the latest notification candidate
+            pendingToastRef.current = newlyCompleted[newlyCompleted.length - 1];
+            // Reset 3s debounce — only fire toast after score stabilises
+            if (toastDebounceRef.current) clearTimeout(toastDebounceRef.current);
+            toastDebounceRef.current = setTimeout(() => {
+              const hole = pendingToastRef.current;
+              if (!hole) return;
               const diff = Number(hole.score) - Number(hole.par);
               const msg = `${getScoreEmoji(diff)} ${getScoreLabel(diff)} on Hole ${hole.number}!`;
               setToast(msg);
@@ -194,14 +214,11 @@ export default function LiveViewer({ liveId }) {
               setTimeout(() => setToast(null), 4000);
               setTimeout(() => setFlashHole(null), 1500);
               if (soundEnabledRef.current) playNotificationSound();
-            }
-          });
+              pendingToastRef.current = null;
+            }, 3000);
+          }
         }
         prevHolesRef.current = d.holes;
-
-        setData(d);
-        setLoading(false);
-        setLastUpdateMs(d.lastUpdate || Date.now());
       },
       (err) => {
         console.error('LiveViewer error:', err);
@@ -210,7 +227,7 @@ export default function LiveViewer({ liveId }) {
       }
     );
 
-    return () => unsub();
+    return () => { unsub(); if (toastDebounceRef.current) clearTimeout(toastDebounceRef.current); };
   }, [liveId]);
 
   // ── Loading ──────────────────────────────────────────────────────────────────
@@ -218,8 +235,10 @@ export default function LiveViewer({ liveId }) {
   if (loading) {
     return (
       <div style={centerStyle}>
-        <div style={{ fontSize: 48 }}>⛳</div>
-        <div style={{ color: 'var(--text)', fontSize: 16, marginTop: 12 }}>Loading live round…</div>
+        <div style={{ fontSize: 48, animation: 'spin 1.5s linear infinite', display: 'inline-block' }}>⛳</div>
+        <div style={{ color: 'var(--text)', fontSize: 16, marginTop: 16, fontWeight: 700 }}>Connecting to live round…</div>
+        <div style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 6 }}>{liveId}</div>
+        <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
       </div>
     );
   }

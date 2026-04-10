@@ -25,9 +25,16 @@ function formatDateShort(date) {
 }
 
 function formatMMSS(secs) {
-  const m = Math.floor(secs / 60);
-  const s = secs % 60;
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  const s = Math.max(0, Math.floor(secs));
+  const m = Math.floor(s / 60);
+  return `${String(m).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+}
+
+// Wall-clock-based timer helper — immune to phone sleep / JS throttling
+function getRemainingMs(t) {
+  if (!t) return 0;
+  if (t.paused) return t.adjustedMs;
+  return Math.max(0, t.adjustedMs - (Date.now() - t.startTime));
 }
 
 function playChime() {
@@ -595,6 +602,7 @@ function DayPlanner({
   onUpdateSchedule,
   onToggleComplete,
   onStartTimer,
+  onStartPractice,
 }) {
   const [search, setSearch] = React.useState('');
   const [categoryFilter, setCategoryFilter] = React.useState(null);
@@ -692,7 +700,7 @@ function DayPlanner({
             <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{totalMins} min planned</div>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
           <button className="btn btn-secondary btn-sm" onClick={loadStandard} style={{ flex: 1, minHeight: 36, fontSize: 12 }}>
             Load Standard Plan
           </button>
@@ -700,6 +708,15 @@ function DayPlanner({
             Load Elite Plan
           </button>
         </div>
+        {onStartPractice && scheduleIds.length > 0 && (
+          <button
+            className="btn btn-primary"
+            onClick={() => onStartPractice(key)}
+            style={{ width: '100%', minHeight: 44, fontSize: 15, fontWeight: 700 }}
+          >
+            ▶ Start Practice
+          </button>
+        )}
       </div>
 
       <div style={{ padding: '0 16px 120px' }}>
@@ -839,137 +856,341 @@ function DayPlanner({
   );
 }
 
+// ─── Practice Mode Screen ─────────────────────────────────────────────────────
+
+function PracticeModeScreen({ dayKey, scheduleIds, completionIds, drillsById, onToggleComplete, onClose, onTimerChange }) {
+  const [activeDrillIndex, setActiveDrillIndex] = React.useState(() => {
+    const idx = scheduleIds.findIndex(id => !completionIds.includes(id));
+    return idx >= 0 ? idx : 0;
+  });
+  // timer shape: { totalMs, adjustedMs, startTime, paused }
+  // adjustedMs = remaining ms when paused; startTime = Date.now() when started/resumed
+  const [timer, setTimer] = React.useState(null);
+  const [sessionDone, setSessionDone] = React.useState(false);
+  const [, forceUpdate] = React.useReducer(x => x + 1, 0);
+  const wakeLockRef = React.useRef(null);
+
+  const activeDrillId = scheduleIds[activeDrillIndex];
+  const activeDrill = activeDrillId ? drillsById[activeDrillId] : null;
+  const completedCount = scheduleIds.filter(id => completionIds.includes(id)).length;
+  const allComplete = scheduleIds.length > 0 && completedCount >= scheduleIds.length;
+  const remainingSessionMins = scheduleIds
+    .filter(id => !completionIds.includes(id))
+    .reduce((s, id) => { const dr = drillsById[id]; return s + (dr ? dr.duration : 0); }, 0);
+
+  // ── Wake lock helpers ───────────────────────────────────────
+  const acquireWakeLock = React.useCallback(async () => {
+    if (!('wakeLock' in navigator) || wakeLockRef.current) return;
+    try {
+      wakeLockRef.current = await navigator.wakeLock.request('screen');
+      wakeLockRef.current.addEventListener('release', () => { wakeLockRef.current = null; });
+    } catch (e) { /* not supported / permission denied */ }
+  }, []);
+
+  const releaseWakeLock = React.useCallback(() => {
+    if (wakeLockRef.current) { wakeLockRef.current.release().catch(() => {}); wakeLockRef.current = null; }
+  }, []);
+
+  // ── Acquire / release wake lock with timer state ────────────
+  React.useEffect(() => {
+    if (timer && !timer.paused) acquireWakeLock();
+    else releaseWakeLock();
+  }, [timer, acquireWakeLock, releaseWakeLock]);
+
+  // Re-acquire after phone wakes up (wake locks are released on page hide)
+  React.useEffect(() => {
+    const handler = () => {
+      if (document.visibilityState === 'visible') {
+        forceUpdate(); // recalculate remaining from wall clock
+        if (timer && !timer.paused) acquireWakeLock();
+      }
+    };
+    document.addEventListener('visibilitychange', handler);
+    return () => document.removeEventListener('visibilitychange', handler);
+  }, [timer, acquireWakeLock]);
+
+  // Release wake lock on unmount
+  React.useEffect(() => () => releaseWakeLock(), [releaseWakeLock]);
+
+  // ── Auto-start timer when active drill changes ──────────────
+  React.useEffect(() => {
+    if (!activeDrill) return;
+    const ms = activeDrill.duration * 60000;
+    setTimer({ totalMs: ms, adjustedMs: ms, startTime: Date.now(), paused: false });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeDrillIndex]);
+
+  // ── Interval just to trigger re-renders (wall-clock based) ──
+  React.useEffect(() => {
+    if (!timer || timer.paused) return;
+    const id = setInterval(() => {
+      const rem = getRemainingMs(timer);
+      if (rem <= 0) {
+        playChime();
+        setTimer(prev => prev ? { ...prev, paused: true, adjustedMs: 0 } : null);
+      } else {
+        forceUpdate();
+      }
+    }, 500);
+    return () => clearInterval(id);
+  }, [timer]);
+
+  // ── Notify parent (global banner) of timer changes ──────────
+  React.useEffect(() => {
+    if (onTimerChange) {
+      onTimerChange(timer ? { ...timer, drillName: activeDrill?.name || '' } : null);
+    }
+  }, [timer, activeDrill?.name, onTimerChange]);
+
+  // ── Session completion ───────────────────────────────────────
+  React.useEffect(() => { if (allComplete) setSessionDone(true); }, [allComplete]);
+
+  function goToIndex(idx) { if (idx < scheduleIds.length) setActiveDrillIndex(idx); }
+
+  function handleMarkDone() {
+    if (!activeDrillId) return;
+    onToggleComplete(activeDrillId, dayKey);
+    const next = scheduleIds.findIndex((id, i) => i > activeDrillIndex && !completionIds.includes(id) && id !== activeDrillId);
+    if (next >= 0) { goToIndex(next); return; }
+    const fromStart = scheduleIds.findIndex(id => id !== activeDrillId && !completionIds.includes(id));
+    if (fromStart >= 0) goToIndex(fromStart);
+  }
+
+  function handleSkip() {
+    const next = activeDrillIndex + 1;
+    if (next < scheduleIds.length) goToIndex(next);
+  }
+
+  function togglePause() {
+    setTimer(prev => {
+      if (!prev) return prev;
+      if (prev.paused) return { ...prev, paused: false, startTime: Date.now() };
+      return { ...prev, paused: true, adjustedMs: getRemainingMs(prev) };
+    });
+  }
+
+  const progressPct = scheduleIds.length > 0 ? (completedCount / scheduleIds.length) * 100 : 0;
+  const remainingMs = getRemainingMs(timer);
+  const remainingSecs = Math.ceil(remainingMs / 1000);
+  const isAlmostDone = remainingSecs <= 30 && remainingSecs > 0;
+
+  if (sessionDone || allComplete) {
+    return (
+      <div style={{
+        position: 'fixed', inset: 0, zIndex: 110,
+        background: 'var(--bg)', display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center', padding: 32,
+      }}>
+        <div style={{ fontSize: 64, marginBottom: 16 }}>🏆</div>
+        <div style={{ fontSize: 26, fontWeight: 900, color: 'var(--accent)', marginBottom: 8 }}>Session Complete!</div>
+        <div style={{ fontSize: 15, color: 'var(--text-muted)', marginBottom: 32, textAlign: 'center' }}>
+          You finished {scheduleIds.length} drill{scheduleIds.length !== 1 ? 's' : ''} today. Great work!
+        </div>
+        <button
+          className="btn btn-primary"
+          onClick={onClose}
+          style={{ width: '100%', maxWidth: 320, minHeight: 52, fontSize: 17, fontWeight: 700 }}
+        >
+          Done
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 110,
+      background: 'var(--bg)', display: 'flex', flexDirection: 'column', overflowY: 'auto',
+    }}>
+      {/* Header */}
+      <div style={{
+        padding: '14px 16px 10px', background: 'var(--surface)',
+        borderBottom: '1px solid var(--border)', position: 'sticky', top: 0, zIndex: 10, flexShrink: 0,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+          <button className="btn btn-secondary btn-sm" onClick={onClose} style={{ minHeight: 36 }}>← Exit</button>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>Practice Session</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              {completedCount}/{scheduleIds.length} drills · {remainingSessionMins} min left
+            </div>
+          </div>
+        </div>
+        <div style={{ height: 6, background: 'var(--border)', borderRadius: 3, overflow: 'hidden' }}>
+          <div style={{ height: '100%', width: `${progressPct}%`, background: 'var(--accent)', borderRadius: 3, transition: 'width 0.4s' }} />
+        </div>
+      </div>
+
+      {/* Current Drill Card */}
+      {activeDrill && (
+        <div style={{ padding: '20px 16px 0', flexShrink: 0 }}>
+          <div style={{ background: 'var(--surface)', border: '2px solid var(--accent)', borderRadius: 16, padding: '20px 20px 24px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+              <span style={{ width: 12, height: 12, borderRadius: '50%', background: CATEGORY_COLORS[activeDrill.category] || 'var(--accent)', flexShrink: 0 }} />
+              <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                {activeDrill.category}
+              </span>
+              {completionIds.includes(activeDrillId) && (
+                <span style={{ marginLeft: 'auto', color: 'var(--accent)', fontWeight: 700, fontSize: 13 }}>✓ Done</span>
+              )}
+            </div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--text)', marginBottom: 6 }}>{activeDrill.name}</div>
+            {activeDrill.description
+              ? <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20, lineHeight: 1.4 }}>{activeDrill.description}</div>
+              : <div style={{ marginBottom: 20 }} />}
+
+            {/* Big timer — wall-clock based */}
+            <div style={{ textAlign: 'center', marginBottom: 20 }}>
+              <div style={{
+                fontSize: 56, fontWeight: 900, letterSpacing: 2, lineHeight: 1,
+                fontVariantNumeric: 'tabular-nums',
+                color: isAlmostDone ? '#ff4d4f' : (timer?.paused ? 'var(--text-muted)' : 'var(--accent)'),
+              }}>
+                {formatMMSS(remainingSecs || activeDrill.duration * 60)}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+                {activeDrill.duration} min drill{timer?.paused ? ' · paused' : ''}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={togglePause} className="btn btn-secondary" style={{ flex: 1, minHeight: 48, fontSize: 15, fontWeight: 700 }}>
+                {timer && !timer.paused ? '⏸ Pause' : '▶ Resume'}
+              </button>
+              <button
+                onClick={handleMarkDone}
+                className="btn btn-primary"
+                style={{ flex: 2, minHeight: 48, fontSize: 15, fontWeight: 700 }}
+                disabled={completionIds.includes(activeDrillId)}
+              >
+                ✓ Mark Done
+              </button>
+            </div>
+            {activeDrillIndex < scheduleIds.length - 1 && (
+              <button
+                onClick={handleSkip}
+                style={{ marginTop: 8, width: '100%', background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 13, cursor: 'pointer', padding: '6px 0' }}
+              >
+                Skip to next →
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Drill list */}
+      <div style={{ padding: '20px 16px 40px' }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+          All Drills
+        </div>
+        {scheduleIds.map((id, index) => {
+          const drill = drillsById[id];
+          if (!drill) return null;
+          const done = completionIds.includes(id);
+          const isActive = index === activeDrillIndex;
+          return (
+            <div
+              key={id}
+              onClick={() => setActiveDrillIndex(index)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '11px 14px', borderRadius: 10, marginBottom: 6, cursor: 'pointer',
+                background: isActive ? 'rgba(76,175,80,0.1)' : 'var(--card)',
+                border: isActive ? '1.5px solid var(--accent)' : '1px solid var(--border)',
+                opacity: done ? 0.55 : 1,
+              }}
+            >
+              <span style={{ width: 10, height: 10, borderRadius: '50%', background: CATEGORY_COLORS[drill.category] || 'var(--accent)', flexShrink: 0 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textDecoration: done ? 'line-through' : 'none' }}>
+                  {drill.name}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{drill.duration} min</div>
+              </div>
+              <div style={{ width: 28, height: 28, borderRadius: '50%', border: `2px solid ${done ? 'var(--accent)' : 'var(--border)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: done ? 'var(--accent)' : 'transparent', fontSize: 14, flexShrink: 0 }}>
+                {done ? '✓' : ''}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ─── Timer Bar ────────────────────────────────────────────────────────────────
 
 function TimerBar({ timer, fallbackScheduleIds, drillsById, onUpdate, onClear }) {
   const drill = timer ? drillsById[timer.drillId] : null;
+  const [, forceUpdate] = React.useReducer(x => x + 1, 0);
 
+  // Wall-clock-based countdown — immune to phone sleep / JS throttle
   React.useEffect(() => {
     if (!timer || timer.paused) return;
-    const interval = setInterval(() => {
-      onUpdate(prev => {
-        if (!prev) return prev;
-        const scheduleIds = prev.scheduleIds || fallbackScheduleIds;
-        const next = prev.remaining - 1;
-        if (next <= 0) {
-          playChime();
-          // Advance to next drill in schedule if applicable
-          if (prev.scheduleIndex != null && scheduleIds && scheduleIds.length > 0) {
-            const nextIdx = prev.scheduleIndex + 1;
-            if (nextIdx < scheduleIds.length) {
-              const nextId = scheduleIds[nextIdx];
-              const nextDrill = drillsById[nextId];
-              if (nextDrill) {
-                return {
-                  drillId: nextId,
-                  totalSecs: nextDrill.duration * 60,
-                  remaining: nextDrill.duration * 60,
-                  paused: false,
-                  scheduleIndex: nextIdx,
-                };
-              }
+    const id = setInterval(() => {
+      const rem = getRemainingMs(timer);
+      if (rem <= 0) {
+        playChime();
+        const scheduleIds = timer.scheduleIds || fallbackScheduleIds;
+        if (timer.scheduleIndex != null && scheduleIds && scheduleIds.length > 0) {
+          const nextIdx = timer.scheduleIndex + 1;
+          if (nextIdx < scheduleIds.length) {
+            const nextDrill = drillsById[scheduleIds[nextIdx]];
+            if (nextDrill) {
+              const ms = nextDrill.duration * 60000;
+              onUpdate({ drillId: nextDrill.id, totalMs: ms, adjustedMs: ms, startTime: Date.now(), paused: false, scheduleIndex: nextIdx, scheduleIds });
+              return;
             }
           }
-          return null;
         }
-        return { ...prev, remaining: next };
-      });
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [timer, onUpdate, fallbackScheduleIds, drillsById]);
+        onUpdate(null);
+      } else {
+        forceUpdate();
+      }
+    }, 500);
+    return () => clearInterval(id);
+  }, [timer, fallbackScheduleIds, drillsById, onUpdate]);
+
+  // Re-render on visibility change (phone wakes up)
+  React.useEffect(() => {
+    const handler = () => { if (document.visibilityState === 'visible') forceUpdate(); };
+    document.addEventListener('visibilitychange', handler);
+    return () => document.removeEventListener('visibilitychange', handler);
+  }, []);
 
   if (!timer || !drill) return null;
 
-  const progressPct = ((timer.totalSecs - timer.remaining) / timer.totalSecs) * 100;
+  const remainingMs = getRemainingMs(timer);
+  const remainingSecs = Math.ceil(remainingMs / 1000);
+  const progressPct = timer.totalMs > 0 ? ((timer.totalMs - remainingMs) / timer.totalMs) * 100 : 0;
 
   return (
     <div style={{
-      position: 'fixed',
-      bottom: 64, // above nav
-      left: 0,
-      right: 0,
-      zIndex: 90,
-      background: 'var(--surface)',
-      borderTop: '2px solid var(--accent)',
-      padding: '10px 16px',
-      display: 'flex',
-      alignItems: 'center',
-      gap: 12,
+      position: 'fixed', bottom: 64, left: 0, right: 0,
+      zIndex: 90, background: 'var(--surface)', borderTop: '2px solid var(--accent)',
+      padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 12,
     }}>
-      {/* Progress */}
-      <div style={{
-        position: 'absolute', top: 0, left: 0,
-        height: 3,
-        width: `${progressPct}%`,
-        background: 'var(--accent)',
-        transition: 'width 1s linear',
-      }} />
-
-      {/* Drill name */}
+      <div style={{ position: 'absolute', top: 0, left: 0, height: 3, width: `${progressPct}%`, background: 'var(--accent)', transition: 'width 0.5s linear' }} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{
-          fontSize: 13,
-          fontWeight: 600,
-          color: 'var(--text)',
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-        }}>
-          {drill.name}
-        </div>
-        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-          {drill.category}
-        </div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{drill.name}</div>
+        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{drill.category}</div>
       </div>
-
-      {/* Countdown */}
-      <div style={{
-        fontSize: 20,
-        fontWeight: 700,
-        color: timer.remaining <= 30 ? 'var(--red)' : 'var(--accent)',
-        fontVariantNumeric: 'tabular-nums',
-        minWidth: 56,
-        textAlign: 'center',
-      }}>
-        {formatMMSS(timer.remaining)}
+      <div style={{ fontSize: 20, fontWeight: 700, color: remainingSecs <= 30 ? '#ff4d4f' : 'var(--accent)', fontVariantNumeric: 'tabular-nums', minWidth: 56, textAlign: 'center' }}>
+        {formatMMSS(remainingSecs)}
       </div>
-
-      {/* Pause/Play */}
       <button
-        onClick={() => onUpdate(prev => prev ? { ...prev, paused: !prev.paused } : prev)}
-        style={{
-          background: 'none',
-          border: '1px solid var(--border)',
-          borderRadius: 8,
-          color: 'var(--text)',
-          width: 40,
-          height: 40,
-          cursor: 'pointer',
-          fontSize: 16,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
+        onClick={() => onUpdate(prev => {
+          if (!prev) return prev;
+          if (prev.paused) return { ...prev, paused: false, startTime: Date.now() };
+          return { ...prev, paused: true, adjustedMs: getRemainingMs(prev) };
+        })}
+        style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text)', width: 40, height: 40, cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
       >
         {timer.paused ? '▶' : '⏸'}
       </button>
-
-      {/* Skip */}
       <button
         onClick={onClear}
-        style={{
-          background: 'none',
-          border: '1px solid var(--border)',
-          borderRadius: 8,
-          color: 'var(--text-muted)',
-          width: 40,
-          height: 40,
-          cursor: 'pointer',
-          fontSize: 16,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
+        style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-muted)', width: 40, height: 40, cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
       >
         ⏭
       </button>
@@ -979,7 +1200,7 @@ function TimerBar({ timer, fallbackScheduleIds, drillsById, onUpdate, onClear })
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-export default function PracticeScreen() {
+export default function PracticeScreen({ onTimerChange }) {
   const [view, setView] = React.useState('library');
   const [calMonth, setCalMonth] = React.useState(() => startOfMonth(today()));
   const [selectedDate, setSelectedDate] = React.useState(null);
@@ -992,6 +1213,7 @@ export default function PracticeScreen() {
   const [search, setSearch] = React.useState('');
   const [categoryFilter, setCategoryFilter] = React.useState(null);
   const [timer, setTimer] = React.useState(null);
+  const [practiceModeKey, setPracticeModeKey] = React.useState(null);
 
   // ── Firebase listeners ──────────────────────────────────────────────────────
 
@@ -1178,15 +1400,23 @@ export default function PracticeScreen() {
   // ── Start timer ─────────────────────────────────────────────────────────────
 
   function startTimer(drill, scheduleIndex, planScheduleIds) {
+    const ms = drill.duration * 60000;
     setTimer({
       drillId: drill.id,
-      totalSecs: drill.duration * 60,
-      remaining: drill.duration * 60,
+      drillName: drill.name,
+      totalMs: ms,
+      adjustedMs: ms,
+      startTime: Date.now(),
       paused: false,
       scheduleIndex: scheduleIndex != null ? scheduleIndex : null,
       scheduleIds: planScheduleIds || null,
     });
   }
+
+  // Sync TimerBar timer to parent (global banner across tabs)
+  React.useEffect(() => {
+    if (onTimerChange) onTimerChange(timer ? { ...timer } : null);
+  }, [timer, onTimerChange]);
 
   // ── Library filtered drills ─────────────────────────────────────────────────
 
@@ -1217,6 +1447,19 @@ export default function PracticeScreen() {
   return (
     <div className="screen" style={{ paddingBottom: timer ? 140 : 80 }}>
 
+      {/* Practice Mode Screen */}
+      {practiceModeKey && (
+        <PracticeModeScreen
+          dayKey={practiceModeKey}
+          scheduleIds={schedules[practiceModeKey] || []}
+          completionIds={completions[practiceModeKey] || []}
+          drillsById={drillsById}
+          onToggleComplete={toggleComplete}
+          onClose={() => { setPracticeModeKey(null); if (onTimerChange) onTimerChange(null); }}
+          onTimerChange={onTimerChange}
+        />
+      )}
+
       {/* Day Planner overlay */}
       {selectedDate && (
         <DayPlanner
@@ -1229,6 +1472,7 @@ export default function PracticeScreen() {
           onUpdateSchedule={updateSchedule}
           onToggleComplete={toggleComplete}
           onStartTimer={startTimer}
+          onStartPractice={(key) => { setSelectedDate(null); setPracticeModeKey(key); }}
         />
       )}
 
@@ -1283,6 +1527,17 @@ export default function PracticeScreen() {
 
         {/* Stats */}
         <PracticeStats completions={completions} drillsById={drillsById} onSelectDay={setSelectedDate} />
+
+        {/* Start Practice button — only when today has drills */}
+        {todaySchedule.length > 0 && (
+          <button
+            className="btn btn-primary"
+            onClick={() => setPracticeModeKey(todayKey)}
+            style={{ width: '100%', minHeight: 48, fontSize: 16, fontWeight: 700, marginBottom: 16 }}
+          >
+            ▶ Start Practice — {todaySchedule.length} Drill{todaySchedule.length !== 1 ? 's' : ''} Today
+          </button>
+        )}
       </div>
 
       {/* Library View */}
