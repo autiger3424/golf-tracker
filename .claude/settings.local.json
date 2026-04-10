@@ -29,7 +29,10 @@
       "Bash(echo $?)",
       "Bash(npx vercel:*)",
       "Bash(node -e \"const fs=require\\('fs'\\); const content=fs.readFileSync\\('src/App.js','utf8'\\); const line=content.split\\('\\\\n'\\).find\\(l=>l.includes\\('practice.*label'\\)||l.includes\\(\\\\\"'🏌\\\\\"\\) || l.includes\\('Practice'\\)\\); const match=content.match\\(/practice.*label.*'\\(.+\\) Practice'/\\); if\\(match\\) { const emoji=match[1]; console.log\\('emoji chars:', [...emoji].map\\(c=>c.codePointAt\\(0\\).toString\\(16\\)\\)\\); }\")",
-      "Bash(node -e \"const fs=require\\('fs'\\); const content=fs.readFileSync\\('src/App.js','utf8'\\); const match=content.match\\(/practice.*label.*'\\(.+\\) Practice'/\\); if\\(match\\) { const emoji=match[1]; console.log\\('emoji chars:', [...emoji].map\\(c=>c.codePointAt\\(0\\).toString\\(16\\)\\)\\); }\")"
+      "Bash(node -e \"const fs=require\\('fs'\\); const content=fs.readFileSync\\('src/App.js','utf8'\\); const match=content.match\\(/practice.*label.*'\\(.+\\) Practice'/\\); if\\(match\\) { const emoji=match[1]; console.log\\('emoji chars:', [...emoji].map\\(c=>c.codePointAt\\(0\\).toString\\(16\\)\\)\\); }\")",
+      "Bash(node -e \"const sharp = require\\('sharp'\\); console.log\\('sharp ok'\\);\")",
+      "Bash(node -e \"const jimp = require\\('jimp'\\); console.log\\('jimp ok'\\);\")",
+      "Bash(node -e ':*)"
     ]
   }
 }
