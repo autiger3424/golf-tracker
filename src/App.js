@@ -7,7 +7,7 @@ import { GoogleOAuthProvider } from '@react-oauth/google';
 // import { useGoogleLogin } from '@react-oauth/google'; // archived with Google Calendar
 import { GOOGLE_CLIENT_ID } from './config';
 import { db } from './firebase';
-import { collection, doc, setDoc, deleteDoc, onSnapshot, getDoc } from 'firebase/firestore';
+import { collection, doc, setDoc, deleteDoc, onSnapshot, getDoc, getDocs } from 'firebase/firestore';
 
 // ============================================================
 // HELPERS
@@ -94,13 +94,89 @@ function calcStats(holes) {
     else breakdown.worse++;
   });
 
-  return { totalScore, totalPar, scoreDiff, fwPct, girPct, avgPutts, sumPutts, breakdown, holesPlayed: played.length };
+  // Front 9 / Back 9
+  const frontH = played.filter(h => h.number <= 9);
+  const backH = played.filter(h => h.number >= 10);
+  const front9 = frontH.length ? {
+    score: frontH.reduce((s, h) => s + parseInt(h.score), 0),
+    par: frontH.reduce((s, h) => s + h.par, 0),
+    holes: frontH.length,
+  } : null;
+  const back9 = backH.length ? {
+    score: backH.reduce((s, h) => s + parseInt(h.score), 0),
+    par: backH.reduce((s, h) => s + h.par, 0),
+    holes: backH.length,
+  } : null;
+  if (front9) front9.diff = front9.score - front9.par;
+  if (back9) back9.diff = back9.score - back9.par;
+
+  // Par type scoring
+  const parTypeStats = [3, 4, 5].reduce((acc, p) => {
+    const hs = played.filter(h => h.par === p);
+    if (!hs.length) { acc[p] = null; return acc; }
+    const avgDiff = hs.reduce((s, h) => s + (parseInt(h.score) - h.par), 0) / hs.length;
+    acc[p] = { n: hs.length, avgDiff: parseFloat(avgDiff.toFixed(2)) };
+    return acc;
+  }, {});
+
+  // Penalties & hazards
+  const penaltyCount = played.reduce((s, h) => s + (h.ob ? 1 : 0) + (h.water ? 1 : 0), 0);
+  const bunkerCount = played.reduce((s, h) => s + (h.fairwayBunker ? 1 : 0) + (h.greensideBunker ? 1 : 0), 0);
+
+  // First putt distance
+  const firstPuttHoles = played.filter(h => h.firstPuttLength !== '' && h.firstPuttLength !== null && h.firstPuttLength !== undefined);
+  const avgFirstPutt = firstPuttHoles.length
+    ? (firstPuttHoles.reduce((s, h) => s + h.firstPuttLength, 0) / firstPuttHoles.length).toFixed(1)
+    : null;
+
+  // Strokes Gained: Putting — needs both firstPuttLength and putts recorded
+  const sgHoles = played.filter(h =>
+    h.firstPuttLength !== '' && h.firstPuttLength !== null && h.firstPuttLength !== undefined &&
+    h.putts !== '' && h.putts !== null && h.putts !== undefined
+  );
+  let sgPutting = null;
+  let sgPuttingPerHole = null;
+  if (sgHoles.length) {
+    const total = sgHoles.reduce((s, h) => s + (expectedPutts(h.firstPuttLength) - parseInt(h.putts)), 0);
+    sgPutting = parseFloat(total.toFixed(2));
+    sgPuttingPerHole = parseFloat((total / sgHoles.length).toFixed(2));
+  }
+
+  return { totalScore, totalPar, scoreDiff, fwPct, girPct, avgPutts, sumPutts, breakdown, holesPlayed: played.length, front9, back9, parTypeStats, penaltyCount, bunkerCount, avgFirstPutt, sgPutting, sgPuttingPerHole, sgHolesCount: sgHoles.length };
 }
+
+// Strokes Gained: Putting baseline — expected putts to hole out from distance (PGA Tour avg)
+const SG_PUTT_BASELINE = [
+  [0, 0], [1, 1.003], [2, 1.017], [3, 1.059], [4, 1.132], [5, 1.211],
+  [6, 1.289], [7, 1.366], [8, 1.437], [9, 1.502], [10, 1.562],
+  [12, 1.668], [14, 1.761], [16, 1.838], [18, 1.903], [20, 1.956],
+  [25, 2.040], [30, 2.097], [35, 2.136], [40, 2.162], [45, 2.181],
+  [50, 2.196], [60, 2.218], [70, 2.232], [75, 2.238],
+];
+
+function expectedPutts(distFt) {
+  if (distFt <= 0) return 0;
+  for (let i = 1; i < SG_PUTT_BASELINE.length; i++) {
+    const [d0, p0] = SG_PUTT_BASELINE[i - 1];
+    const [d1, p1] = SG_PUTT_BASELINE[i];
+    if (distFt <= d1) {
+      const t = (distFt - d0) / (d1 - d0);
+      return p0 + t * (p1 - p0);
+    }
+  }
+  return SG_PUTT_BASELINE[SG_PUTT_BASELINE.length - 1][1];
+}
+
+const FIRST_PUTT_OPTIONS = [
+  ...Array.from({ length: 10 }, (_, i) => i + 1),          // 1–10 ft
+  ...Array.from({ length: 10 }, (_, i) => 12 + i * 2),     // 12–30 ft (every 2)
+  ...Array.from({ length: 9 },  (_, i) => 35 + i * 5),     // 35–75 ft (every 5)
+];
 
 function createHolesFromTee(tee) {
   return tee.holes.map(h => ({
     number: h.number, par: h.par, yards: h.yards,
-    score: '', putts: '', fairwayHit: null, fairwayMissDirection: null, gir: null,
+    score: '', putts: '', firstPuttLength: '', fairwayHit: null, fairwayMissDirection: null, gir: null,
     fairwayBunker: false, greensideBunker: false, ob: false, water: false, notes: ''
   }));
 }
@@ -108,7 +184,7 @@ function createHolesFromTee(tee) {
 function createBlankHoles() {
   return Array.from({ length: 18 }, (_, i) => ({
     number: i + 1, par: 4, yards: 0,
-    score: '', putts: '', fairwayHit: null, fairwayMissDirection: null, gir: null,
+    score: '', putts: '', firstPuttLength: '', fairwayHit: null, fairwayMissDirection: null, gir: null,
     fairwayBunker: false, greensideBunker: false, ob: false, water: false, notes: ''
   }));
 }
@@ -277,10 +353,15 @@ function HoleCard({ hole, onChange, isManual }) {
           {isManual && (
             <div className="stat-row" style={{ marginTop: 12 }}>
               <div className="stat-item">
-                <label>Par</label>
-                <input type="number" className="score-input" value={hole.par}
-                  min={3} max={6} placeholder="4"
-                  onChange={e => onChange({ par: parseInt(e.target.value) || 4 })} />
+                <label className="form-label" style={{ marginBottom: 6 }}>Par</label>
+                <div className="toggle-buttons">
+                  {[3, 4, 5].map(p => (
+                    <button key={p} className={`chip${hole.par === p ? ' active' : ''}`}
+                      onClick={() => onChange({ par: p })}>
+                      {p}
+                    </button>
+                  ))}
+                </div>
               </div>
               <div className="stat-item">
                 <label>Yards</label>
@@ -301,6 +382,18 @@ function HoleCard({ hole, onChange, isManual }) {
               <NumberStepper value={hole.putts} min={0} max={10} defaultVal={1}
                 onChange={v => onChange({ putts: v })} />
             </div>
+          </div>
+
+          <div style={{ marginTop: 12 }}>
+            <label className="form-label" style={{ marginBottom: 6 }}>1st Putt Distance</label>
+            <select className="putt-length-select"
+              value={hole.firstPuttLength || ''}
+              onChange={e => onChange({ firstPuttLength: e.target.value ? parseInt(e.target.value) : '' })}>
+              <option value="">— not recorded —</option>
+              {FIRST_PUTT_OPTIONS.map(ft => (
+                <option key={ft} value={ft}>{ft} ft</option>
+              ))}
+            </select>
           </div>
 
           <div style={{ marginTop: 12 }}>
@@ -395,6 +488,8 @@ function SetupScreen({ onStart, preloadCourseName, customCourses, onSaveCustomCo
   const fileRef = React.useRef(null);
   const [manualCourseName, setManualCourseName] = React.useState(preloadCourseName || '');
   const [manualTeeName, setManualTeeName] = React.useState('');
+  const [showManualForm, setShowManualForm] = React.useState(!!preloadCourseName);
+  const [showBuiltIn, setShowBuiltIn] = React.useState(false);
 
   const allCourses = [...customCourses, ...COURSES];
   const filtered = allCourses.filter(c =>
@@ -481,10 +576,7 @@ function SetupScreen({ onStart, preloadCourseName, customCourses, onSaveCustomCo
 
   return (
     <div className="screen">
-      <div style={{ marginBottom: 20 }}>
-        <h2 style={{ marginBottom: 4 }}>New Round</h2>
-        <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Set up your round details</p>
-      </div>
+      <h2 style={{ marginBottom: 14 }}>New Round</h2>
 
       <div className="form-group">
         <label className="form-label">Player Name</label>
@@ -528,53 +620,69 @@ function SetupScreen({ onStart, preloadCourseName, customCourses, onSaveCustomCo
         )}
       </div>
 
-      <div className="card" style={{ marginBottom: 12 }}>
-        <div className="card-title">Or Enter Course Manually</div>
-        <div className="form-group" style={{ marginBottom: 10 }}>
-          <label className="form-label">Course Name</label>
-          <input className="form-input" type="text" value={manualCourseName}
-            onChange={e => { setManualCourseName(e.target.value); setSelectedCourse(null); setScannedTees(null); setScanStatus(null); }}
-            placeholder="e.g. Pebble Beach Golf Links" />
-        </div>
-        <div className="form-group" style={{ marginBottom: 0 }}>
-          <label className="form-label">Tee Name</label>
-          <input className="form-input" type="text" value={manualTeeName}
-            onChange={e => setManualTeeName(e.target.value)}
-            placeholder="e.g. Blue, White, Red" />
-        </div>
-        {manualCourseName.trim() && (
-          <p style={{ fontSize: '0.78rem', color: 'var(--accent)', marginTop: 10 }}>
-            ✓ You'll enter par and yardage per hole on the round screen.
-          </p>
+      <div className={'collapsible-card' + (showManualForm ? ' open' : '')} style={{ marginBottom: 10 }}>
+        <button className="collapsible-header" onClick={() => setShowManualForm(v => !v)}>
+          <span>⌨️ Enter Course Manually</span>
+          <span className="collapsible-chevron">{showManualForm ? '▴' : '▾'}</span>
+        </button>
+        {showManualForm && (
+          <div className="collapsible-body">
+            <div className="form-group" style={{ marginBottom: 10 }}>
+              <label className="form-label">Course Name</label>
+              <input className="form-input" type="text" value={manualCourseName}
+                onChange={e => { setManualCourseName(e.target.value); setSelectedCourse(null); setScannedTees(null); setScanStatus(null); }}
+                placeholder="e.g. Pebble Beach Golf Links" />
+            </div>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="form-label">Tee Name</label>
+              <input className="form-input" type="text" value={manualTeeName}
+                onChange={e => setManualTeeName(e.target.value)}
+                placeholder="e.g. Blue, White, Red" />
+            </div>
+            {manualCourseName.trim() && (
+              <p style={{ fontSize: '0.78rem', color: 'var(--accent)', marginTop: 10 }}>
+                ✓ You'll enter par and yardage per hole on the round screen.
+              </p>
+            )}
+          </div>
         )}
       </div>
 
-      <div className="card">
-        <div className="card-title">Or Choose a Built-in Course</div>
-        <input className="form-input" style={{ marginBottom: 8 }} type="text"
-          value={courseSearch} onChange={e => setCourseSearch(e.target.value)}
-          placeholder="Search 10 famous US courses…" />
-        <div className="course-list">
-          {filtered.map(c => (
-            <div key={c.id}
-              className={`course-item${selectedCourse?.id === c.id ? ' selected' : ''}`}
-              onClick={() => { setSelectedCourse(c); setScannedTees(null); setScanStatus(null); }}>
-              <div style={{ flex: 1 }}>
-                <div className="course-item-name">
-                  {c.name}
-                  {c.isCustom && <span className="custom-course-badge">⭐ Saved</span>}
+      <div className={'collapsible-card' + (showBuiltIn ? ' open' : '')} style={{ marginBottom: 10 }}>
+        <button className="collapsible-header" onClick={() => setShowBuiltIn(v => !v)}>
+          <span>🏌️ Pick a Built-in Course{selectedCourse ? ` · ${selectedCourse.name}` : ''}</span>
+          <span className="collapsible-chevron">{showBuiltIn ? '▴' : '▾'}</span>
+        </button>
+        {showBuiltIn && (
+          <div className="collapsible-body">
+            <input className="form-input" style={{ marginBottom: 8 }} type="text"
+              value={courseSearch} onChange={e => setCourseSearch(e.target.value)}
+              placeholder="Search courses…" />
+            {courseSearch.trim() && <div className="course-list">
+              {filtered.length === 0
+                ? <div style={{ padding: '12px 0', color: 'var(--text-muted)', fontSize: '0.88rem' }}>No courses match "{courseSearch}"</div>
+                : filtered.map(c => (
+                <div key={c.id}
+                  className={`course-item${selectedCourse?.id === c.id ? ' selected' : ''}`}
+                  onClick={() => { setSelectedCourse(c); setScannedTees(null); setScanStatus(null); }}>
+                  <div style={{ flex: 1 }}>
+                    <div className="course-item-name">
+                      {c.name}
+                      {c.isCustom && <span className="custom-course-badge">⭐ Saved</span>}
+                    </div>
+                  </div>
+                  {c.isCustom && (
+                    <button className="delete-course-btn"
+                      onClick={e => { e.stopPropagation(); onDeleteCustomCourse(c.id); if (selectedCourse?.id === c.id) setSelectedCourse(null); }}>
+                      ✕
+                    </button>
+                  )}
+                  {selectedCourse?.id === c.id && <span style={{ color: 'var(--accent)' }}>✓</span>}
                 </div>
-              </div>
-              {c.isCustom && (
-                <button className="delete-course-btn"
-                  onClick={e => { e.stopPropagation(); onDeleteCustomCourse(c.id); if (selectedCourse?.id === c.id) setSelectedCourse(null); }}>
-                  ✕
-                </button>
-              )}
-              {selectedCourse?.id === c.id && <span style={{ color: 'var(--accent)' }}>✓</span>}
-            </div>
-          ))}
-        </div>
+              ))}
+            </div>}
+          </div>
+        )}
       </div>
 
       <button className="btn btn-primary" disabled={!canStart} onClick={handleStart} style={{ marginTop: 8 }}>
@@ -663,7 +771,7 @@ function CodeCopyBox({ code }) {
   );
 }
 
-function RoundScreen({ round, onUpdateHole, onFinish, isManual, isLive, liveId, onToggleLive, showSharePanel, onShowShare, onHideShare, liveStatus, liveSyncing }) {
+function RoundScreen({ round, onUpdateHole, onFinish, onSave, saved, isManual, isLive, liveId, onToggleLive, showSharePanel, onShowShare, onHideShare, liveStatus, liveSyncing }) {
   const stats = calcStats(round.holes);
   const [copied, setCopied] = React.useState(false);
 
@@ -805,10 +913,45 @@ function RoundScreen({ round, onUpdateHole, onFinish, isManual, isLive, liveId, 
           <HoleCard key={hole.number} hole={hole} isManual={isManual}
             onChange={(updates) => onUpdateHole(i, updates)} />
         ))}
-        <button className="btn btn-gold" style={{ marginTop: 8 }} onClick={onFinish}>
-          View Analysis →
-        </button>
+        <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+          {saved ? (
+            <div className="btn btn-primary" style={{ flex: 1, textAlign: 'center', opacity: 0.8 }}>✓ Saved</div>
+          ) : (
+            <button className="btn btn-primary" style={{ flex: 1 }} onClick={onSave}>💾 Save Round</button>
+          )}
+          <button className="btn btn-gold" style={{ flex: 1 }} onClick={onFinish}>View Analysis →</button>
+        </div>
       </div>
+    </div>
+  );
+}
+
+// ============================================================
+// HOLE NOTES SECTION (collapsible)
+// ============================================================
+function HoleNotesSection({ holes }) {
+  const [open, setOpen] = React.useState(false);
+  const noted = holes.filter(h => h.notes && h.notes.trim());
+  if (!noted.length) return null;
+  return (
+    <div className="card" style={{ marginTop: 8 }}>
+      <button className="notes-toggle" onClick={() => setOpen(o => !o)}>
+        <span>📝 Hole Notes ({noted.length} hole{noted.length !== 1 ? 's' : ''})</span>
+        <span className={`chevron${open ? ' open' : ''}`}>▼</span>
+      </button>
+      {open && (
+        <div style={{ marginTop: 12 }}>
+          {noted.map(h => (
+            <div key={h.number} className="hole-note-row">
+              <div className="hole-note-header">
+                <span className="hole-note-num">Hole {h.number}</span>
+                <span className="hole-note-meta">Par {h.par}{h.score !== '' && h.score !== null ? ` · Score ${h.score}` : ''}</span>
+              </div>
+              <p className="hole-note-text">{h.notes.trim()}</p>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -831,7 +974,7 @@ function AnalysisScreen({ round, onSave, onNewRound, saved }) {
     );
   }
 
-  const { totalScore, totalPar, scoreDiff, fwPct, girPct, avgPutts, sumPutts, breakdown, holesPlayed } = stats;
+  const { totalScore, totalPar, scoreDiff, fwPct, girPct, avgPutts, sumPutts, breakdown, holesPlayed, front9, back9, parTypeStats, penaltyCount, bunkerCount, avgFirstPutt, sgPutting, sgPuttingPerHole, sgHolesCount } = stats;
 
   const breakdownItems = [
     { label: 'Eagle / Better', count: breakdown.eagle, color: '#ffd700' },
@@ -876,11 +1019,32 @@ function AnalysisScreen({ round, onSave, onNewRound, saved }) {
           <div className="stat-box-value">{avgPutts ?? '—'}</div>
           <div className="stat-box-label">Avg Putts</div>
         </div>
+        <div className="stat-box">
+          <div className="stat-box-value">{avgFirstPutt ? avgFirstPutt + 'ft' : '—'}</div>
+          <div className="stat-box-label">Avg 1st Putt</div>
+        </div>
       </div>
 
       {sumPutts !== null && (
         <div style={{ textAlign: 'center', fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: -6, marginBottom: 12 }}>
           Total putts: {sumPutts}
+        </div>
+      )}
+
+      {sgPutting !== null && (
+        <div className="card">
+          <div className="card-title">Strokes Gained: Putting</div>
+          <div className="sg-putt-main" style={{ color: sgPutting > 0 ? 'var(--red)' : sgPutting < 0 ? 'var(--blue)' : 'var(--text)' }}>
+            {sgPutting > 0 ? '+' : ''}{sgPutting}
+          </div>
+          <div style={{ textAlign: 'center', fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 4 }}>
+            {sgPuttingPerHole > 0 ? '+' : ''}{sgPuttingPerHole} per hole · based on {sgHolesCount} hole{sgHolesCount !== 1 ? 's' : ''}
+          </div>
+          <div style={{ marginTop: 12, fontSize: '0.78rem', color: 'var(--text-dim)', lineHeight: 1.5 }}>
+            <span style={{ color: 'var(--red)', fontWeight: 600 }}>Positive</span> = better than PGA Tour avg from that distance.{' '}
+            <span style={{ color: 'var(--blue)', fontWeight: 600 }}>Negative</span> = more putts than expected.
+            Requires both 1st putt distance and putt count to be recorded.
+          </div>
         </div>
       )}
 
@@ -897,6 +1061,52 @@ function AnalysisScreen({ round, onSave, onNewRound, saved }) {
           </div>
         ))}
       </div>
+
+      {front9 && back9 && front9.holes >= 9 && back9.holes >= 9 && (
+        <div className="card">
+          <div className="card-title">Front 9 / Back 9</div>
+          <div className="split-grid">
+            {[{ label: 'Front 9', d: front9 }, { label: 'Back 9', d: back9 }].map(({ label, d }) => (
+              <div key={label} className="split-box">
+                <div className="split-label">{label}</div>
+                <div className="split-score">{d.score}</div>
+                <div className={`split-diff ${scoreDiffClass(d.diff)}`}>{scoreDiffLabel(d.diff)}</div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 2 }}>vs par {d.par}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {(parTypeStats[3] || parTypeStats[4] || parTypeStats[5]) && (
+        <div className="card">
+          <div className="card-title">Scoring by Par Type</div>
+          {[3, 4, 5].map(p => {
+            const pt = parTypeStats[p];
+            if (!pt) return null;
+            const sign = pt.avgDiff >= 0 ? '+' : '';
+            return (
+              <div key={p} className="par-type-row">
+                <span className="par-type-label">Par {p}s</span>
+                <span className="par-type-count">{pt.n} hole{pt.n !== 1 ? 's' : ''}</span>
+                <span className={`par-type-diff ${pt.avgDiff < 0 ? 'under' : pt.avgDiff > 0 ? 'over' : 'even'}`}>
+                  {sign}{pt.avgDiff} avg
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {(penaltyCount > 0 || bunkerCount > 0) && (
+        <div className="card">
+          <div className="card-title">Penalties &amp; Hazards</div>
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: '0.88rem', color: 'var(--text-dim)' }}>
+            {penaltyCount > 0 && <span>⚠️ {penaltyCount} penalty stroke{penaltyCount !== 1 ? 's' : ''} (OB / Water)</span>}
+            {bunkerCount > 0 && <span>⛱ {bunkerCount} bunker{bunkerCount !== 1 ? 's' : ''}</span>}
+          </div>
+        </div>
+      )}
 
       <div className="card">
         <div className="card-title">Hole by Hole</div>
@@ -935,6 +1145,8 @@ function AnalysisScreen({ round, onSave, onNewRound, saved }) {
           </table>
         </div>
       </div>
+
+      <HoleNotesSection holes={round.holes} />
 
       <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
         {!saved ? (
@@ -1399,15 +1611,134 @@ function CalendarScreen({ onPreloadCourse }) {
 }
 
 // ============================================================
+// RECOVER LIVE ROUND — reads live_rounds from Firestore
+// ============================================================
+function RecoverLiveRounds({ onRecover }) {
+  const [open, setOpen] = React.useState(false);
+  const [liveRounds, setLiveRounds] = React.useState([]);
+  const [loading, setLoading] = React.useState(false);
+  const [recovering, setRecovering] = React.useState(null);
+
+  const fetchLive = async () => {
+    if (!db) return;
+    setLoading(true);
+    try {
+      const snap = await getDocs(collection(db, 'live_rounds'));
+      const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      docs.sort((a, b) => new Date(b.startTime || 0) - new Date(a.startTime || 0));
+      setLiveRounds(docs);
+    } catch (e) { console.error(e); }
+    setLoading(false);
+  };
+
+  const handleOpen = () => { setOpen(true); fetchLive(); };
+
+  const handleRecover = async (lr) => {
+    setRecovering(lr.id);
+    const newRound = {
+      id: 'recovered_' + lr.id + '_' + Date.now(),
+      playerName: lr.playerName || 'Grady',
+      courseName: lr.courseName || 'Unknown Course',
+      courseId: (lr.courseName || 'unknown').toLowerCase().replace(/[^a-z0-9]+/g, '_'),
+      tee: lr.tee || 'Manual',
+      teeColor: lr.teeColor || 'white',
+      date: lr.startTime || new Date().toISOString(),
+      roundType: lr.roundType || 'practice',
+      isManual: lr.isManual !== undefined ? lr.isManual : true,
+      holes: (lr.holes || []).map(h => ({
+        number: h.number,
+        par: h.par ?? 4,
+        yards: h.yards ?? 0,
+        score: h.score ?? '',
+        putts: h.putts ?? '',
+        firstPuttLength: h.firstPuttLength ?? '',
+        fairwayHit: h.fairwayHit ?? null,
+        fairwayMissDirection: h.fairwayMissDirection ?? null,
+        gir: h.gir ?? null,
+        fairwayBunker: h.fairwayBunker ?? false,
+        greensideBunker: h.greensideBunker ?? false,
+        ob: h.ob ?? false,
+        water: h.water ?? false,
+        notes: h.notes ?? '',
+      })),
+    };
+    await onRecover(newRound);
+    setRecovering(null);
+    setOpen(false);
+  };
+
+  if (!db) return null;
+
+  return (
+    <div style={{ marginBottom: 14 }}>
+      {!open ? (
+        <button className="btn btn-secondary" style={{ width: '100%', fontSize: '0.85rem' }}
+          onClick={handleOpen}>
+          🔄 Recover Round from Live History
+        </button>
+      ) : (
+        <div className="card">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+            <div className="card-title" style={{ margin: 0 }}>Live Round History</div>
+            <button onClick={() => setOpen(false)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '1.2rem', cursor: 'pointer' }}>✕</button>
+          </div>
+          {loading && <div style={{ color: 'var(--text-muted)', fontSize: '0.88rem', padding: '8px 0' }}>Loading…</div>}
+          {!loading && liveRounds.length === 0 && (
+            <div style={{ color: 'var(--text-muted)', fontSize: '0.88rem', padding: '8px 0' }}>No live rounds found.</div>
+          )}
+          {liveRounds.map(lr => {
+            const st = lr.holes ? calcStats(lr.holes) : null;
+            return (
+              <div key={lr.id} style={{ padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 700, fontSize: '0.92rem' }}>{lr.courseName || 'Unknown Course'}</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                      {lr.startTime ? formatDate(lr.startTime) : 'Unknown date'} · {lr.playerName || '—'} · Code: {lr.id}
+                    </div>
+                    {st && <div style={{ fontSize: '0.78rem', color: 'var(--accent)', marginTop: 2 }}>
+                      Score {st.totalScore} ({scoreDiffLabel(st.scoreDiff)}) · {st.holesPlayed} holes
+                    </div>}
+                  </div>
+                  <button className="btn btn-primary btn-sm"
+                    disabled={recovering === lr.id}
+                    onClick={() => handleRecover(lr)}>
+                    {recovering === lr.id ? '…' : '+ Save'}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
 // HISTORY SCREEN
 // ============================================================
-function HistoryScreen({ rounds, onViewRound, onEdit }) {
+function HistoryScreen({ rounds, onViewRound, onEdit, onDelete, onRecover }) {
   const [filter, setFilter] = React.useState('all');
   const [expandedId, setExpandedId] = React.useState(null);
+  const [excludedIds, setExcludedIds] = React.useState(() => new Set());
 
   const filtered = rounds
     .filter(r => filter === 'all' || r.roundType === filter)
     .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  const toggleIncluded = (id) => {
+    setExcludedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const includeAll = () => setExcludedIds(new Set());
+  const excludeAll = () => setExcludedIds(new Set(filtered.map(r => r.id)));
+
+  const statsRounds = filtered.filter(r => !excludedIds.has(r.id));
+  const excludedInFilter = filtered.length - statsRounds.length;
 
   const calcAllTime = (rs) => {
     if (!rs.length) return null;
@@ -1419,20 +1750,29 @@ function HistoryScreen({ rounds, onViewRound, onEdit }) {
     const fwArr = allStats.map(s => s.fwPct).filter(x => x !== null);
     const girArr = allStats.map(s => s.girPct).filter(x => x !== null);
     const puttArr = allStats.map(s => s.avgPutts ? parseFloat(s.avgPutts) : null).filter(x => x !== null);
+    const firstPuttArr = allStats.map(s => s.avgFirstPutt ? parseFloat(s.avgFirstPutt) : null).filter(x => x !== null);
+    const parTypeDiffs = (parVal) => {
+      const diffs = [];
+      rs.forEach(r => r.holes
+        .filter(h => h.par === parVal && h.score !== '' && h.score !== null && h.score !== undefined)
+        .forEach(h => diffs.push(parseInt(h.score) - h.par)));
+      if (!diffs.length) return null;
+      return parseFloat((diffs.reduce((a, b) => a + b, 0) / diffs.length).toFixed(2));
+    };
+    const sgArr = allStats.map(s => s.sgPutting).filter(x => x !== null);
+    const avgSgPutting = sgArr.length ? parseFloat((sgArr.reduce((a, b) => a + b, 0) / sgArr.length).toFixed(2)) : null;
     return {
       rounds: rs.length, avg, best,
       fwPct: fwArr.length ? Math.round(fwArr.reduce((a, b) => a + b, 0) / fwArr.length) : null,
       girPct: girArr.length ? Math.round(girArr.reduce((a, b) => a + b, 0) / girArr.length) : null,
       avgPutts: puttArr.length ? (puttArr.reduce((a, b) => a + b, 0) / puttArr.length).toFixed(1) : null,
+      avgFirstPutt: firstPuttArr.length ? (firstPuttArr.reduce((a, b) => a + b, 0) / firstPuttArr.length).toFixed(1) : null,
+      par3avg: parTypeDiffs(3), par4avg: parTypeDiffs(4), par5avg: parTypeDiffs(5),
+      avgSgPutting,
     };
   };
 
-  const allTimeData = {
-    all: calcAllTime(rounds),
-    practice: calcAllTime(rounds.filter(r => r.roundType === 'practice')),
-    competition: calcAllTime(rounds.filter(r => r.roundType === 'competition')),
-  };
-  const currentAllTime = allTimeData[filter];
+  const currentAllTime = calcAllTime(statsRounds);
 
   return (
     <div className="screen">
@@ -1440,6 +1780,8 @@ function HistoryScreen({ rounds, onViewRound, onEdit }) {
         <h2>Round History</h2>
         <span className="badge">{filtered.length}</span>
       </div>
+
+      <RecoverLiveRounds onRecover={onRecover} />
 
       <div className="toggle-group" style={{ marginBottom: 14 }}>
         <button className={'toggle-btn' + (filter === 'all' ? ' active' : '')} onClick={() => setFilter('all')}>All</button>
@@ -1449,8 +1791,27 @@ function HistoryScreen({ rounds, onViewRound, onEdit }) {
 
       {currentAllTime && (
         <div className="card" style={{ marginBottom: 14 }}>
-          <div className="card-title">
-            {filter === 'competition' ? 'Competition ' : filter === 'practice' ? 'Practice ' : 'All-Time '}Stats
+          <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span>
+              {filter === 'competition' ? 'Competition ' : filter === 'practice' ? 'Practice ' : 'All-Time '}Stats
+            </span>
+            <span style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-dim)', letterSpacing: 0 }}>
+              {statsRounds.length} of {filtered.length} rounds
+              {excludedInFilter > 0 && (
+                <button
+                  onClick={includeAll}
+                  style={{ marginLeft: 8, background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 700, padding: 0 }}>
+                  include all
+                </button>
+              )}
+              {excludedInFilter === 0 && filtered.length > 0 && (
+                <button
+                  onClick={excludeAll}
+                  style={{ marginLeft: 8, background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 700, padding: 0 }}>
+                  exclude all
+                </button>
+              )}
+            </span>
           </div>
           <div className="alltime-grid">
             {[
@@ -1460,6 +1821,8 @@ function HistoryScreen({ rounds, onViewRound, onEdit }) {
               { v: currentAllTime.fwPct !== null ? currentAllTime.fwPct + '%' : '—', l: 'FW Hit %' },
               { v: currentAllTime.girPct !== null ? currentAllTime.girPct + '%' : '—', l: 'GIR %' },
               { v: currentAllTime.avgPutts ?? '—', l: 'Avg Putts' },
+              { v: currentAllTime.avgFirstPutt !== null ? currentAllTime.avgFirstPutt + "'" : '—', l: 'Avg 1st Putt' },
+              { v: currentAllTime.avgSgPutting !== null ? (currentAllTime.avgSgPutting > 0 ? '+' : '') + currentAllTime.avgSgPutting : '—', l: 'Avg SG: Putt' },
             ].map((item, i) => (
               <div key={i} className="alltime-box">
                 <div className="alltime-value">{item.v}</div>
@@ -1467,6 +1830,55 @@ function HistoryScreen({ rounds, onViewRound, onEdit }) {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {statsRounds.length >= 2 && (() => {
+        const trendRounds = [...statsRounds]
+          .sort((a, b) => new Date(a.date) - new Date(b.date))
+          .slice(-10)
+          .map(r => ({ r, st: calcStats(r.holes) }))
+          .filter(x => x.st);
+        if (!trendRounds.length) return null;
+        const scores = trendRounds.map(x => x.st.totalScore);
+        const maxS = Math.max(...scores);
+        const minS = Math.min(...scores);
+        const range = maxS - minS || 1;
+        return (
+          <div className="card" style={{ marginBottom: 14 }}>
+            <div className="card-title">Score Trend — Last {trendRounds.length} Rounds</div>
+            <div className="trend-chart">
+              {trendRounds.map(({ r, st }) => {
+                const pct = Math.max(10, Math.round(((st.totalScore - minS) / range) * 80 + 10));
+                return (
+                  <div key={r.id} className="trend-bar-wrap" title={`${r.courseName}: ${st.totalScore}`}>
+                    <div className="trend-score-top">{st.totalScore}</div>
+                    <div className="trend-bar" style={{
+                      height: pct + '%',
+                      background: st.scoreDiff < 0 ? 'var(--red)' : st.scoreDiff > 0 ? 'var(--blue)' : 'var(--accent)'
+                    }} />
+                    <div className="trend-label">{new Date(r.date).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
+      {currentAllTime && (currentAllTime.par3avg !== null || currentAllTime.par4avg !== null || currentAllTime.par5avg !== null) && (
+        <div className="card" style={{ marginBottom: 14 }}>
+          <div className="card-title">Avg Score vs Par by Hole Type</div>
+          {[['Par 3s', currentAllTime.par3avg], ['Par 4s', currentAllTime.par4avg], ['Par 5s', currentAllTime.par5avg]].map(([label, avg]) => {
+            if (avg === null) return null;
+            const sign = avg >= 0 ? '+' : '';
+            return (
+              <div key={label} className="par-type-row">
+                <span className="par-type-label">{label}</span>
+                <span className={`par-type-diff ${avg < 0 ? 'under' : avg > 0 ? 'over' : 'even'}`}>{sign}{avg} / hole</span>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -1479,13 +1891,24 @@ function HistoryScreen({ rounds, onViewRound, onEdit }) {
         filtered.map(r => {
           const st = calcStats(r.holes);
           const isExpanded = expandedId === r.id;
+          const isIncluded = !excludedIds.has(r.id);
           return (
-            <div key={r.id} className="round-history-item"
+            <div key={r.id} className={'round-history-item' + (isIncluded ? '' : ' excluded-from-stats')}
               onClick={() => setExpandedId(isExpanded ? null : r.id)}>
               <div className="round-history-header">
-                <div>
-                  <div className="round-history-course">{r.courseName}</div>
-                  <div className="round-history-date">{formatDate(r.date)} · {r.playerName}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
+                  <input
+                    type="checkbox"
+                    checked={isIncluded}
+                    onClick={e => e.stopPropagation()}
+                    onChange={() => toggleIncluded(r.id)}
+                    title={isIncluded ? 'Included in stats · click to exclude' : 'Excluded from stats · click to include'}
+                    className="round-include-checkbox"
+                  />
+                  <div style={{ minWidth: 0 }}>
+                    <div className="round-history-course">{r.courseName}</div>
+                    <div className="round-history-date">{formatDate(r.date)} · {r.playerName}</div>
+                  </div>
                 </div>
                 <div className="round-history-score">
                   {st?.totalScore ?? '—'}
@@ -1523,7 +1946,17 @@ function HistoryScreen({ rounds, onViewRound, onEdit }) {
                     </button>
                     <button className="btn btn-secondary btn-sm"
                       onClick={e => { e.stopPropagation(); onEdit(r); }}>
-                      ✏️ Edit Round
+                      ✏️ Edit
+                    </button>
+                    <button className="btn btn-delete btn-sm"
+                      onClick={e => {
+                        e.stopPropagation();
+                        if (window.confirm(`Delete round at ${r.courseName} on ${formatDate(r.date)}? This cannot be undone.`)) {
+                          onDelete(r.id);
+                          setExpandedId(null);
+                        }
+                      }}>
+                      🗑 Delete
                     </button>
                   </div>
                 </div>
@@ -1913,6 +2346,26 @@ function App() {
     setScreen('editRound');
   };
 
+  const handleRecoverRound = async (newRound) => {
+    if (db) {
+      try { await setDoc(doc(db, 'rounds', newRound.id), newRound); } catch (e) { console.error(e); }
+    } else {
+      const newRounds = [newRound, ...rounds];
+      setRounds(newRounds);
+      saveRoundsToStorage(newRounds);
+    }
+  };
+
+  const handleDeleteRound = async (roundId) => {
+    if (db) {
+      try { await deleteDoc(doc(db, 'rounds', roundId)); } catch (e) { console.error(e); }
+    } else {
+      const newRounds = rounds.filter(r => r.id !== roundId);
+      setRounds(newRounds);
+      saveRoundsToStorage(newRounds);
+    }
+  };
+
   const handleSaveEdit = async (updatedRound) => {
     if (db) {
       try { await setDoc(doc(db, 'rounds', updatedRound.id), updatedRound); } catch (e) { console.error(e); }
@@ -1994,6 +2447,8 @@ function App() {
           round={currentRound}
           onUpdateHole={handleUpdateHole}
           onFinish={() => setScreen('analysis')}
+          onSave={handleSaveRound}
+          saved={roundSaved}
           isManual={currentRound.isManual}
           isLive={isLive}
           liveId={liveId}
@@ -2016,7 +2471,7 @@ function App() {
           saved={true} />
       )}
       {screen === 'history' && (
-        <HistoryScreen rounds={rounds} onViewRound={handleViewHistoryRound} onEdit={handleStartEdit} />
+        <HistoryScreen rounds={rounds} onViewRound={handleViewHistoryRound} onEdit={handleStartEdit} onDelete={handleDeleteRound} onRecover={handleRecoverRound} />
       )}
       {screen === 'editRound' && editingRound && (
         <EditRoundScreen
