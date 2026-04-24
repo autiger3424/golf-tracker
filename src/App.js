@@ -478,7 +478,7 @@ function HoleCard({ hole, onChange, isManual }) {
 // SETUP SCREEN
 // ============================================================
 function SetupScreen({ onStart, preloadCourseName, customCourses, onSaveCustomCourse, onDeleteCustomCourse }) {
-  const [playerName, setPlayerName] = React.useState(() => localStorage.getItem('golf_player_name') || '');
+  const playerName = 'Grady';
   const [roundType, setRoundType] = React.useState('practice');
   const [courseSearch, setCourseSearch] = React.useState('');
   const [selectedCourse, setSelectedCourse] = React.useState(null);
@@ -579,12 +579,6 @@ function SetupScreen({ onStart, preloadCourseName, customCourses, onSaveCustomCo
       <h2 style={{ marginBottom: 14 }}>New Round</h2>
 
       <div className="form-group">
-        <label className="form-label">Player Name</label>
-        <input className="form-input" type="text" value={playerName}
-          onChange={e => setPlayerName(e.target.value)} placeholder="Your name" />
-      </div>
-
-      <div className="form-group">
         <label className="form-label">Round Type</label>
         <div className="toggle-group">
           <button className={`toggle-btn${roundType === 'practice' ? ' active' : ''}`}
@@ -595,7 +589,7 @@ function SetupScreen({ onStart, preloadCourseName, customCourses, onSaveCustomCo
       </div>
 
       <div className="card" style={{ marginBottom: 12 }}>
-        <div className="card-title">Scan Scorecard — Gemini AI</div>
+        <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--blue)', marginBottom: 10 }}>Scan Scorecard — Gemini AI</div>
         <p style={{ fontSize: '0.82rem', color: 'var(--text-dim)', marginBottom: 10 }}>
           Take a photo or upload a scorecard image and AI will extract all tee boxes and hole data automatically.
         </p>
@@ -684,6 +678,8 @@ function SetupScreen({ onStart, preloadCourseName, customCourses, onSaveCustomCo
           </div>
         )}
       </div>
+
+      <WatchLiveCard />
 
       <button className="btn btn-primary" disabled={!canStart} onClick={handleStart} style={{ marginTop: 8 }}>
         {isManualMode ? 'Start Round →' : 'Select Tee Box →'}
@@ -1844,7 +1840,7 @@ function HistoryScreen({ rounds, onViewRound, onEdit, onDelete, onRecover }) {
             {[
               { v: currentAllTime.rounds, l: 'Rounds' },
               { v: currentAllTime.avg, l: 'Avg Score',
-                color: currentAllTime.avgScoreDiff < 0 ? 'var(--accent)' : currentAllTime.avgScoreDiff > 0 ? 'var(--red)' : 'var(--text)',
+                color: currentAllTime.avgScoreDiff < 0 ? '#86efac' : currentAllTime.avgScoreDiff > 0 ? '#ef6464' : 'var(--linen)',
                 delta: latestStats && deltaLabel(latestStats.avg, true) },
               { v: currentAllTime.best, l: 'Best Score' },
               { v: currentAllTime.fwPct !== null ? currentAllTime.fwPct + '%' : '—', l: 'FW Hit %',
@@ -1859,15 +1855,13 @@ function HistoryScreen({ rounds, onViewRound, onEdit, onDelete, onRecover }) {
                 delta: latestStats && deltaLabel(latestStats.avgSgPutting, false) },
             ].map((item, i) => (
               <div key={i} className="alltime-box">
+                <div className="alltime-value" style={item.color ? { color: item.color } : undefined}>{item.v}</div>
                 <div className="alltime-label">{item.l}</div>
-                <div className="alltime-body">
-                  <div className="alltime-value" style={item.color ? { color: item.color } : undefined}>{item.v}</div>
-                  {item.delta && (
-                    <div className="alltime-delta" style={{ color: item.delta.good ? 'var(--accent)' : 'var(--red)' }}>
-                      {item.delta.sign} {item.delta.value !== 0 ? item.delta.value : 'same'}
-                    </div>
-                  )}
-                </div>
+                {item.delta && (
+                  <div className="alltime-delta" style={{ color: item.delta.good ? '#86efac' : '#ef6464' }}>
+                    {item.delta.sign} {item.delta.value !== 0 ? item.delta.value : 'same'}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -2018,36 +2012,40 @@ function HistoryScreen({ rounds, onViewRound, onEdit, onDelete, onRecover }) {
 // ============================================================
 function WatchLiveCard() {
   const [code, setCode] = React.useState('');
+  const [open, setOpen] = React.useState(false);
   function handleWatch() {
     const clean = code.trim().toUpperCase().replace(/\s+/g, '');
     if (clean) window.location.hash = '#/live/' + clean;
   }
   return (
-    <div style={{ padding: '0 16px 16px' }}>
-      <div className="card" style={{ padding: '18px 18px' }}>
-        <div style={{ fontWeight: 800, color: 'var(--text)', marginBottom: 4, fontSize: 16 }}>
-          Watch a Live Round
+    <div className={'collapsible-card' + (open ? ' open' : '')} style={{ marginBottom: 10 }}>
+      <button className="collapsible-header" onClick={() => setOpen(v => !v)}>
+        <span>Watch a Live Round</span>
+        <span className="collapsible-chevron">{open ? '▴' : '▾'}</span>
+      </button>
+      {open && (
+        <div className="collapsible-body">
+          <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 14 }}>
+            Get the code from the player's GolfTrack app, then enter it below
+          </div>
+          <input
+            className="form-input"
+            placeholder="e.g. GRADY-APR8-X4K2"
+            value={code}
+            onChange={e => setCode(e.target.value.toUpperCase())}
+            onKeyDown={e => e.key === 'Enter' && handleWatch()}
+            style={{ width: '100%', fontSize: 18, fontFamily: 'monospace', letterSpacing: 2, marginBottom: 12, textAlign: 'center', fontWeight: 700 }}
+          />
+          <button
+            className="btn btn-primary"
+            onClick={handleWatch}
+            disabled={!code.trim()}
+            style={{ width: '100%', minHeight: 50, fontSize: 16, fontWeight: 700 }}
+          >
+            Watch Live →
+          </button>
         </div>
-        <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 14 }}>
-          Get the code from the player's GolfTrack app, then enter it below
-        </div>
-        <input
-          className="form-input"
-          placeholder="e.g. GRADY-APR8-X4K2"
-          value={code}
-          onChange={e => setCode(e.target.value.toUpperCase())}
-          onKeyDown={e => e.key === 'Enter' && handleWatch()}
-          style={{ width: '100%', fontSize: 18, fontFamily: 'monospace', letterSpacing: 2, marginBottom: 12, textAlign: 'center', fontWeight: 700 }}
-        />
-        <button
-          className="btn btn-primary"
-          onClick={handleWatch}
-          disabled={!code.trim()}
-          style={{ width: '100%', minHeight: 50, fontSize: 16, fontWeight: 700 }}
-        >
-          Watch Live →
-        </button>
-      </div>
+      )}
     </div>
   );
 }
@@ -2452,7 +2450,7 @@ function App() {
     <div>
       <div className="app-header">
         <div className="logo">Grady <span>GolfTrack</span></div>
-        <div style={{ fontSize: '0.78rem', color: 'var(--text-on-bg)' }}>
+        <div style={{ fontSize: '0.78rem', color: 'rgba(240, 236, 224, 0.7)' }}>
           {rounds.length} round{rounds.length !== 1 ? 's' : ''}
         </div>
       </div>
@@ -2477,7 +2475,6 @@ function App() {
             onSaveCustomCourse={handleSaveCustomCourse}
             onDeleteCustomCourse={handleDeleteCustomCourse}
           />
-          <WatchLiveCard />
         </>
       )}
       {screen === 'teeSelect' && pendingSetup && (
