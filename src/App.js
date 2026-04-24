@@ -1760,6 +1760,8 @@ function HistoryScreen({ rounds, onViewRound, onEdit, onDelete, onRecover }) {
     };
     const sgArr = allStats.map(s => s.sgPutting).filter(x => x !== null);
     const avgSgPutting = sgArr.length ? parseFloat((sgArr.reduce((a, b) => a + b, 0) / sgArr.length).toFixed(2)) : null;
+    const scoreDiffs = allStats.map(s => s.scoreDiff);
+    const avgScoreDiff = scoreDiffs.length ? scoreDiffs.reduce((a, b) => a + b, 0) / scoreDiffs.length : 0;
     return {
       rounds: rs.length, avg, best,
       fwPct: fwArr.length ? Math.round(fwArr.reduce((a, b) => a + b, 0) / fwArr.length) : null,
@@ -1768,7 +1770,35 @@ function HistoryScreen({ rounds, onViewRound, onEdit, onDelete, onRecover }) {
       avgFirstPutt: firstPuttArr.length ? (firstPuttArr.reduce((a, b) => a + b, 0) / firstPuttArr.length).toFixed(1) : null,
       par3avg: parTypeDiffs(3), par4avg: parTypeDiffs(4), par5avg: parTypeDiffs(5),
       avgSgPutting,
+      avgScoreDiff,
     };
+  };
+
+  // Compute deltas: most recent round stats vs average across the rest
+  const latestStats = statsRounds.length >= 2
+    ? (() => {
+        const sorted = [...statsRounds].sort((a, b) => new Date(b.date) - new Date(a.date));
+        const latest = calcStats(sorted[0].holes);
+        const prior = calcAllTime(sorted.slice(1));
+        if (!latest || !prior) return null;
+        const pct = (v) => (v !== null && v !== undefined && v !== '' ? parseFloat(v) : null);
+        return {
+          avg: { curr: latest.totalScore, prior: pct(prior.avg) },
+          fwPct: { curr: latest.fwPct, prior: prior.fwPct },
+          girPct: { curr: latest.girPct, prior: prior.girPct },
+          avgPutts: { curr: pct(latest.avgPutts), prior: pct(prior.avgPutts) },
+          avgFirstPutt: { curr: pct(latest.avgFirstPutt), prior: pct(prior.avgFirstPutt) },
+          avgSgPutting: { curr: latest.sgPutting, prior: prior.avgSgPutting },
+        };
+      })()
+    : null;
+
+  const deltaLabel = (pair, lowerIsBetter = true) => {
+    if (!pair || pair.curr === null || pair.prior === null) return null;
+    const d = pair.curr - pair.prior;
+    if (Math.abs(d) < 0.05) return { sign: '•', value: 0, good: true };
+    const good = lowerIsBetter ? d < 0 : d > 0;
+    return { sign: d < 0 ? '▼' : '▲', value: Math.abs(d).toFixed(1), good };
   };
 
   const currentAllTime = calcAllTime(statsRounds);
@@ -1813,17 +1843,29 @@ function HistoryScreen({ rounds, onViewRound, onEdit, onDelete, onRecover }) {
           <div className="alltime-grid">
             {[
               { v: currentAllTime.rounds, l: 'Rounds' },
-              { v: currentAllTime.avg, l: 'Avg Score' },
+              { v: currentAllTime.avg, l: 'Avg Score',
+                color: currentAllTime.avgScoreDiff < 0 ? 'var(--accent)' : currentAllTime.avgScoreDiff > 0 ? 'var(--red)' : 'var(--text)',
+                delta: latestStats && deltaLabel(latestStats.avg, true) },
               { v: currentAllTime.best, l: 'Best Score' },
-              { v: currentAllTime.fwPct !== null ? currentAllTime.fwPct + '%' : '—', l: 'FW Hit %' },
-              { v: currentAllTime.girPct !== null ? currentAllTime.girPct + '%' : '—', l: 'GIR %' },
-              { v: currentAllTime.avgPutts ?? '—', l: 'Avg Putts' },
-              { v: currentAllTime.avgFirstPutt !== null ? currentAllTime.avgFirstPutt + "'" : '—', l: 'Avg 1st Putt' },
-              { v: currentAllTime.avgSgPutting !== null ? (currentAllTime.avgSgPutting > 0 ? '+' : '') + currentAllTime.avgSgPutting : '—', l: 'Avg SG: Putt' },
+              { v: currentAllTime.fwPct !== null ? currentAllTime.fwPct + '%' : '—', l: 'FW Hit %',
+                delta: latestStats && deltaLabel(latestStats.fwPct, false) },
+              { v: currentAllTime.girPct !== null ? currentAllTime.girPct + '%' : '—', l: 'GIR %',
+                delta: latestStats && deltaLabel(latestStats.girPct, false) },
+              { v: currentAllTime.avgPutts ?? '—', l: 'Avg Putts',
+                delta: latestStats && deltaLabel(latestStats.avgPutts, true) },
+              { v: currentAllTime.avgFirstPutt !== null ? currentAllTime.avgFirstPutt + "'" : '—', l: 'Avg 1st Putt',
+                delta: latestStats && deltaLabel(latestStats.avgFirstPutt, true) },
+              { v: currentAllTime.avgSgPutting !== null ? (currentAllTime.avgSgPutting > 0 ? '+' : '') + currentAllTime.avgSgPutting : '—', l: 'Avg SG: Putt',
+                delta: latestStats && deltaLabel(latestStats.avgSgPutting, false) },
             ].map((item, i) => (
               <div key={i} className="alltime-box">
-                <div className="alltime-value">{item.v}</div>
+                <div className="alltime-value" style={item.color ? { color: item.color } : undefined}>{item.v}</div>
                 <div className="alltime-label">{item.l}</div>
+                {item.delta && (
+                  <div className="alltime-delta" style={{ color: item.delta.good ? 'var(--accent)' : 'var(--red)' }}>
+                    {item.delta.sign} {item.delta.value !== 0 ? item.delta.value : 'same'}
+                  </div>
+                )}
               </div>
             ))}
           </div>
