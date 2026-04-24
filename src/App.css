@@ -7,28 +7,34 @@
 }
 
 :root {
-  --bg: #faf8f5;
-  --surface: #f5f2ed;
-  --card: #ffffff;
-  --card2: #f5f2ed;
-  --border: #e8e4de;
-  --accent: #c2410c;
-  --accent-dim: #9a3412;
-  --gold: #b45309;
-  --gold-dim: #78350f;
-  --text: #1c1917;
-  --text-dim: #44403c;
+  --bg: #cfd3c3;
+  --surface: #d8dcce;
+  --card: #fdfbf5;
+  --card2: #e9ece3;
+  --border: rgba(0, 0, 0, 0.08);
+  --border-dark: rgba(0, 0, 0, 0.08);
+  --accent: #1e3a2b;
+  --accent-dim: #152a1f;
+  --accent-text: #ffffff;
+  --gold: #b8914d;
+  --gold-dim: #8a6a36;
+  --text: #1a1a17;
+  --text-dim: #3d3a32;
   --text-muted: #78716c;
-  --red: #dc2626;
-  --blue: #0284c7;
-  --orange: #ea580c;
-  --radius: 12px;
-  --radius-sm: 8px;
+  --text-on-bg: #1a1a17;
+  --red: #991b1b;
+  --blue: #1e3a5f;
+  --orange: #a3662a;
+  --radius: 8px;
+  --radius-sm: 6px;
 }
 
 html, body {
   height: 100%;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-feature-settings: 'cv11', 'ss01';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   background: var(--bg);
   color: var(--text);
   font-size: 16px;
@@ -44,26 +50,27 @@ html, body {
 
 /* ======= TYPOGRAPHY ======= */
 h1 { font-size: 1.6rem; font-weight: 700; }
-h2 { font-size: 1.25rem; font-weight: 600; }
+h2 { font-size: 1.25rem; font-weight: 500; letter-spacing: -0.015em; color: var(--text-on-bg); }
 h3 { font-size: 1rem; font-weight: 600; }
 
 /* ======= HEADER ======= */
 .app-header {
   background: var(--surface);
-  border-bottom: 1px solid var(--border);
-  padding: 14px 16px;
+  border-bottom: 1px solid rgba(30, 58, 95, 0.15);
+  padding: 16px 16px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   position: sticky;
   top: 0;
   z-index: 100;
+  color: var(--text-on-bg);
 }
 
 .app-header .logo {
   font-size: 1.3rem;
   font-weight: 800;
-  color: var(--accent);
+  color: var(--blue);
   letter-spacing: -0.5px;
 }
 
@@ -75,12 +82,16 @@ h3 { font-size: 1rem; font-weight: 600; }
 .nav-tabs {
   display: flex;
   gap: 4px;
-  padding: 10px 16px;
+  padding: 12px 16px;
   background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 2px solid var(--blue);
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
+  box-shadow: 0 2px 6px rgba(30, 58, 95, 0.08);
+  position: sticky;
+  top: 54px;
+  z-index: 99;
 }
 .nav-tabs::-webkit-scrollbar { display: none; }
 
@@ -93,12 +104,15 @@ h3 { font-size: 1rem; font-weight: 600; }
   font-size: 0.85rem;
   font-weight: 600;
   background: transparent;
-  color: var(--text-muted);
+  color: var(--blue);
   transition: all 0.15s;
+  opacity: 0.7;
 }
+.nav-tab:not(.active):not(:disabled):hover { opacity: 1; }
+.nav-tab.active { opacity: 1; }
 .nav-tab.active {
   background: var(--accent);
-  color: white;
+  color: var(--accent-text, white);
 }
 .nav-tab:disabled {
   opacity: 0.35;
@@ -113,17 +127,23 @@ h3 { font-size: 1rem; font-weight: 600; }
 /* ======= CARD ======= */
 .card {
   background: var(--card);
-  border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 16px;
   margin-bottom: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.screen-setup .card,
+.screen-setup .collapsible-card {
+  border-bottom: 2px solid var(--blue);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 2px 6px rgba(30, 58, 95, 0.08);
 }
 
 .card-title {
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--text-muted);
+  color: var(--blue);
   margin-bottom: 8px;
   font-weight: 600;
 }
@@ -132,9 +152,9 @@ h3 { font-size: 1rem; font-weight: 600; }
 .form-label {
   display: block;
   font-size: 0.8rem;
-  color: var(--text-dim);
+  color: var(--blue);
   margin-bottom: 6px;
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .form-input {
@@ -183,7 +203,7 @@ h3 { font-size: 1rem; font-weight: 600; }
 }
 .toggle-btn.active {
   background: var(--accent);
-  color: white;
+  color: var(--accent-text, white);
 }
 .toggle-btn.active.competition {
   background: var(--gold);
@@ -254,17 +274,17 @@ h3 { font-size: 1rem; font-weight: 600; }
 
 .btn-primary {
   background: var(--accent);
-  color: white;
+  color: var(--accent-text, white);
 }
 .btn-primary:hover { background: var(--accent-dim); }
-.btn-primary:active { background: #7c2d12; transform: scale(0.98); }
+.btn-primary:active { background: #0e1f16; transform: scale(0.98); }
 
 .btn-secondary {
-  background: var(--card2);
-  color: var(--text);
-  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--blue);
+  border: 1px solid var(--blue);
 }
-.btn-secondary:hover { background: var(--border); }
+.btn-secondary:hover { background: rgba(30, 58, 95, 0.08); }
 
 .btn-gold {
   background: var(--gold);
@@ -834,7 +854,7 @@ h3 { font-size: 1rem; font-weight: 600; }
 
 .round-history-score {
   font-size: 1.4rem;
-  font-weight: 800;
+  font-weight: 700;
   color: var(--accent);
 }
 
@@ -905,8 +925,8 @@ h3 { font-size: 1rem; font-weight: 600; }
 }
 
 .alltime-box {
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--card2);
+  border: 1px solid rgba(30, 58, 95, 0.25);
   border-radius: var(--radius-sm);
   padding: 12px;
   text-align: center;
@@ -914,7 +934,7 @@ h3 { font-size: 1rem; font-weight: 600; }
 
 .alltime-value {
   font-size: 1.4rem;
-  font-weight: 800;
+  font-weight: 700;
   color: var(--accent);
 }
 
@@ -1086,7 +1106,7 @@ h3 { font-size: 1rem; font-weight: 600; }
   padding: 0 5px;
   border-radius: 10px;
   background: var(--accent);
-  color: white;
+  color: var(--accent-text, white);
   font-size: 0.7rem;
   font-weight: 700;
 }
@@ -1128,9 +1148,9 @@ h3 { font-size: 1rem; font-weight: 600; }
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  background: rgba(194, 65, 12, 0.12);
+  background: rgba(30, 58, 43, 0.1);
   color: var(--accent);
-  border: 1px solid rgba(194, 65, 12, 0.4);
+  border: 1px solid rgba(30, 58, 43, 0.35);
   border-radius: 20px;
   padding: 3px 10px;
   font-size: 11px;

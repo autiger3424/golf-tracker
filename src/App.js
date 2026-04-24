@@ -575,7 +575,7 @@ function SetupScreen({ onStart, preloadCourseName, customCourses, onSaveCustomCo
   };
 
   return (
-    <div className="screen">
+    <div className="screen screen-setup">
       <h2 style={{ marginBottom: 14 }}>New Round</h2>
 
       <div className="form-group">
@@ -588,20 +588,20 @@ function SetupScreen({ onStart, preloadCourseName, customCourses, onSaveCustomCo
         <label className="form-label">Round Type</label>
         <div className="toggle-group">
           <button className={`toggle-btn${roundType === 'practice' ? ' active' : ''}`}
-            onClick={() => setRoundType('practice')}>⛳ Practice</button>
+            onClick={() => setRoundType('practice')}>Practice</button>
           <button className={`toggle-btn${roundType === 'competition' ? ' active competition' : ''}`}
-            onClick={() => setRoundType('competition')}>🏆 Competition</button>
+            onClick={() => setRoundType('competition')}>Competition</button>
         </div>
       </div>
 
       <div className="card" style={{ marginBottom: 12 }}>
-        <div className="card-title">📷 Scan Scorecard — Gemini AI</div>
+        <div className="card-title">Scan Scorecard — Gemini AI</div>
         <p style={{ fontSize: '0.82rem', color: 'var(--text-dim)', marginBottom: 10 }}>
           Take a photo or upload a scorecard image and AI will extract all tee boxes and hole data automatically.
         </p>
         <button className="btn btn-primary" onClick={() => fileRef.current?.click()}
           disabled={scanStatus === 'loading'}>
-          {scanStatus === 'loading' ? '⏳ Scanning…' : '📷 Choose Photo or Take Picture'}
+          {scanStatus === 'loading' ? 'Scanning…' : 'Choose Photo or Take Picture'}
         </button>
         <input ref={fileRef} type="file" accept="image/*"
           style={{ display: 'none' }} onChange={handleScan} />
@@ -615,14 +615,14 @@ function SetupScreen({ onStart, preloadCourseName, customCourses, onSaveCustomCo
         )}
         {scannedTees?.courseName && (
           <div style={{ marginTop: 8, fontSize: '0.85rem', color: 'var(--accent)', fontWeight: 600 }}>
-            📍 {scannedTees.courseName}
+            {scannedTees.courseName}
           </div>
         )}
       </div>
 
       <div className={'collapsible-card' + (showManualForm ? ' open' : '')} style={{ marginBottom: 10 }}>
         <button className="collapsible-header" onClick={() => setShowManualForm(v => !v)}>
-          <span>⌨️ Enter Course Manually</span>
+          <span>Enter Course Manually</span>
           <span className="collapsible-chevron">{showManualForm ? '▴' : '▾'}</span>
         </button>
         {showManualForm && (
@@ -650,7 +650,7 @@ function SetupScreen({ onStart, preloadCourseName, customCourses, onSaveCustomCo
 
       <div className={'collapsible-card' + (showBuiltIn ? ' open' : '')} style={{ marginBottom: 10 }}>
         <button className="collapsible-header" onClick={() => setShowBuiltIn(v => !v)}>
-          <span>🏌️ Pick a Built-in Course{selectedCourse ? ` · ${selectedCourse.name}` : ''}</span>
+          <span>Pick a Built-in Course{selectedCourse ? ` · ${selectedCourse.name}` : ''}</span>
           <span className="collapsible-chevron">{showBuiltIn ? '▴' : '▾'}</span>
         </button>
         {showBuiltIn && (
@@ -668,7 +668,7 @@ function SetupScreen({ onStart, preloadCourseName, customCourses, onSaveCustomCo
                   <div style={{ flex: 1 }}>
                     <div className="course-item-name">
                       {c.name}
-                      {c.isCustom && <span className="custom-course-badge">⭐ Saved</span>}
+                      {c.isCustom && <span className="custom-course-badge">Saved</span>}
                     </div>
                   </div>
                   {c.isCustom && (
@@ -874,7 +874,7 @@ function RoundScreen({ round, onUpdateHole, onFinish, onSave, saved, isManual, i
                 onClick={copyLink}
                 style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--accent)', padding: '6px 10px', fontSize: 12, cursor: 'pointer', flexShrink: 0, fontWeight: 700 }}
               >
-                {copied ? '✓' : '📋'}
+                {copied ? '✓' : 'Copy'}
               </button>
             </div>
           </div>
@@ -966,7 +966,6 @@ function AnalysisScreen({ round, onSave, onNewRound, saved }) {
     return (
       <div className="screen">
         <div className="empty-state">
-          <div className="empty-state-icon">📊</div>
           <div className="empty-state-text">No holes scored yet.</div>
         </div>
         <button className="btn btn-secondary" style={{ marginTop: 16 }} onClick={onNewRound}>← Back</button>
@@ -1002,7 +1001,7 @@ function AnalysisScreen({ round, onSave, onNewRound, saved }) {
           {scoreDiffLabel(scoreDiff)}
         </div>
         <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 6 }}>
-          {holesPlayed} holes · {round.roundType === 'competition' ? '🏆 Competition' : '⛳ Practice'} · {formatDate(round.date)}
+          {holesPlayed} holes · {round.roundType === 'competition' ? 'Competition' : 'Practice'} · {formatDate(round.date)}
         </div>
       </div>
 
@@ -1165,7 +1164,7 @@ function AnalysisScreen({ round, onSave, onNewRound, saved }) {
           <button className="btn btn-secondary" style={{ width: '100%' }}
             disabled={calStatus === 'loading' || calStatus === 'success'}
             onClick={handleAddToCalendar}>
-            {calStatus === 'loading' ? '⏳ Adding…' : calStatus === 'success' ? '✓ Added to Calendar' : '📅 Add to Google Calendar'}
+            {calStatus === 'loading' ? 'Adding…' : calStatus === 'success' ? 'Added to Calendar' : 'Add to Google Calendar'}
           </button>
           {calMsg && (
             <div style={{ marginTop: 6, fontSize: '0.82rem', textAlign: 'center',
@@ -1257,9 +1256,9 @@ function EditRoundScreen({ round, onSave, onCancel }) {
             <label className="form-label">Round Type</label>
             <div className="toggle-group">
               <button className={`toggle-btn${roundType === 'practice' ? ' active' : ''}`}
-                onClick={() => setRoundType('practice')}>⛳ Practice</button>
+                onClick={() => setRoundType('practice')}>Practice</button>
               <button className={`toggle-btn${roundType === 'competition' ? ' active competition' : ''}`}
-                onClick={() => setRoundType('competition')}>🏆 Competition</button>
+                onClick={() => setRoundType('competition')}>Competition</button>
             </div>
           </div>
         </div>
@@ -1556,8 +1555,8 @@ function CalendarScreen({ onPreloadCourse }) {
         <>
           {/* List / Calendar toggle */}
           <div className="toggle-group" style={{ marginBottom: 12 }}>
-            <button className={`toggle-btn${viewMode === 'list' ? ' active' : ''}`} onClick={() => setViewMode('list')}>☰ List</button>
-            <button className={`toggle-btn${viewMode === 'calendar' ? ' active' : ''}`} onClick={() => setViewMode('calendar')}>📅 Month</button>
+            <button className={`toggle-btn${viewMode === 'list' ? ' active' : ''}`} onClick={() => setViewMode('list')}>List</button>
+            <button className={`toggle-btn${viewMode === 'calendar' ? ' active' : ''}`} onClick={() => setViewMode('calendar')}>Month</button>
           </div>
 
           {appleLoading && (
@@ -1674,7 +1673,7 @@ function RecoverLiveRounds({ onRecover }) {
       {!open ? (
         <button className="btn btn-secondary" style={{ width: '100%', fontSize: '0.85rem' }}
           onClick={handleOpen}>
-          🔄 Recover Round from Live History
+          Recover Round from Live History
         </button>
       ) : (
         <div className="card">
@@ -1781,8 +1780,6 @@ function HistoryScreen({ rounds, onViewRound, onEdit, onDelete, onRecover }) {
         <span className="badge">{filtered.length}</span>
       </div>
 
-      <RecoverLiveRounds onRecover={onRecover} />
-
       <div className="toggle-group" style={{ marginBottom: 14 }}>
         <button className={'toggle-btn' + (filter === 'all' ? ' active' : '')} onClick={() => setFilter('all')}>All</button>
         <button className={'toggle-btn' + (filter === 'practice' ? ' active' : '')} onClick={() => setFilter('practice')}>Practice</button>
@@ -1884,7 +1881,6 @@ function HistoryScreen({ rounds, onViewRound, onEdit, onDelete, onRecover }) {
 
       {filtered.length === 0 ? (
         <div className="empty-state">
-          <div className="empty-state-icon">🏌️</div>
           <div className="empty-state-text">No rounds saved yet.<br />Complete a round to see it here.</div>
         </div>
       ) : (
@@ -1922,7 +1918,7 @@ function HistoryScreen({ rounds, onViewRound, onEdit, onDelete, onRecover }) {
               </div>
               <div className="round-history-meta">
                 <span className={'tag tag-' + r.roundType}>
-                  {r.roundType === 'competition' ? '🏆 Competition' : '⛳ Practice'}
+                  {r.roundType === 'competition' ? 'Competition' : 'Practice'}
                 </span>
                 <span className="tag tag-tee">{r.tee}</span>
               </div>
@@ -1933,10 +1929,10 @@ function HistoryScreen({ rounds, onViewRound, onEdit, onDelete, onRecover }) {
                     {st.fwPct !== null && <span>FW: {st.fwPct}%</span>}
                     {st.girPct !== null && <span>GIR: {st.girPct}%</span>}
                     {st.avgPutts && <span>Putts: {st.avgPutts}/hole</span>}
-                    <span>🦅 {st.breakdown.eagle}</span>
-                    <span>🐦 {st.breakdown.birdie}</span>
-                    <span>⚪ {st.breakdown.par}</span>
-                    <span>+1: {st.breakdown.bogey}</span>
+                    <span>Eagle: {st.breakdown.eagle}</span>
+                    <span>Birdie: {st.breakdown.birdie}</span>
+                    <span>Par: {st.breakdown.par}</span>
+                    <span>Bogey: {st.breakdown.bogey}</span>
                     <span>+2+: {st.breakdown.double + st.breakdown.worse}</span>
                   </div>
                   <div style={{ display: 'flex', gap: 8 }}>
@@ -1946,7 +1942,7 @@ function HistoryScreen({ rounds, onViewRound, onEdit, onDelete, onRecover }) {
                     </button>
                     <button className="btn btn-secondary btn-sm"
                       onClick={e => { e.stopPropagation(); onEdit(r); }}>
-                      ✏️ Edit
+                      Edit
                     </button>
                     <button className="btn btn-delete btn-sm"
                       onClick={e => {
@@ -1956,7 +1952,7 @@ function HistoryScreen({ rounds, onViewRound, onEdit, onDelete, onRecover }) {
                           setExpandedId(null);
                         }
                       }}>
-                      🗑 Delete
+                      Delete
                     </button>
                   </div>
                 </div>
@@ -1965,6 +1961,10 @@ function HistoryScreen({ rounds, onViewRound, onEdit, onDelete, onRecover }) {
           );
         })
       )}
+
+      <div style={{ marginTop: 24 }}>
+        <RecoverLiveRounds onRecover={onRecover} />
+      </div>
     </div>
   );
 }
@@ -1982,7 +1982,7 @@ function WatchLiveCard() {
     <div style={{ padding: '0 16px 16px' }}>
       <div className="card" style={{ padding: '18px 18px' }}>
         <div style={{ fontWeight: 800, color: 'var(--text)', marginBottom: 4, fontSize: 16 }}>
-          📺 Watch a Live Round
+          Watch a Live Round
         </div>
         <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 14 }}>
           Get the code from the player's GolfTrack app, then enter it below
@@ -2408,7 +2408,7 @@ function App() {
     <div>
       <div className="app-header">
         <div className="logo">Grady <span>GolfTrack</span></div>
-        <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+        <div style={{ fontSize: '0.78rem', color: 'var(--text-on-bg)' }}>
           {rounds.length} round{rounds.length !== 1 ? 's' : ''}
         </div>
       </div>
