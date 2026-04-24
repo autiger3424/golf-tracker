@@ -1859,13 +1859,15 @@ function HistoryScreen({ rounds, onViewRound, onEdit, onDelete, onRecover }) {
                 delta: latestStats && deltaLabel(latestStats.avgSgPutting, false) },
             ].map((item, i) => (
               <div key={i} className="alltime-box">
-                <div className="alltime-value" style={item.color ? { color: item.color } : undefined}>{item.v}</div>
                 <div className="alltime-label">{item.l}</div>
-                {item.delta && (
-                  <div className="alltime-delta" style={{ color: item.delta.good ? 'var(--accent)' : 'var(--red)' }}>
-                    {item.delta.sign} {item.delta.value !== 0 ? item.delta.value : 'same'}
-                  </div>
-                )}
+                <div className="alltime-body">
+                  <div className="alltime-value" style={item.color ? { color: item.color } : undefined}>{item.v}</div>
+                  {item.delta && (
+                    <div className="alltime-delta" style={{ color: item.delta.good ? 'var(--accent)' : 'var(--red)' }}>
+                      {item.delta.sign} {item.delta.value !== 0 ? item.delta.value : 'same'}
+                    </div>
+                  )}
+                </div>
               </div>
             ))}
           </div>
