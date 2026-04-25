@@ -1770,12 +1770,16 @@ function HistoryScreen({ rounds, onViewRound, onEdit, onDelete, onRecover }) {
     };
   };
 
-  // Compute deltas: most recent round stats vs average across the rest
+  // Compute deltas: most recent SCORED round stats vs average across the rest
   const latestStats = statsRounds.length >= 2
     ? (() => {
-        const sorted = [...statsRounds].sort((a, b) => new Date(b.date) - new Date(a.date));
-        const latest = calcStats(sorted[0].holes);
-        const prior = calcAllTime(sorted.slice(1));
+        const sorted = [...statsRounds]
+          .map(r => ({ r, st: calcStats(r.holes) }))
+          .filter(x => x.st)
+          .sort((a, b) => new Date(b.r.date) - new Date(a.r.date));
+        if (sorted.length < 2) return null;
+        const latest = sorted[0].st;
+        const prior = calcAllTime(sorted.slice(1).map(x => x.r));
         if (!latest || !prior) return null;
         const pct = (v) => (v !== null && v !== undefined && v !== '' ? parseFloat(v) : null);
         return {
@@ -1840,7 +1844,7 @@ function HistoryScreen({ rounds, onViewRound, onEdit, onDelete, onRecover }) {
             {[
               { v: currentAllTime.rounds, l: 'Rounds' },
               { v: currentAllTime.avg, l: 'Avg Score',
-                color: currentAllTime.avgScoreDiff < 0 ? '#86efac' : currentAllTime.avgScoreDiff > 0 ? '#ef6464' : 'var(--linen)',
+                color: currentAllTime.avgScoreDiff < 0 ? '#86efac' : currentAllTime.avgScoreDiff > 0 ? '#d63838' : 'var(--linen)',
                 delta: latestStats && deltaLabel(latestStats.avg, true) },
               { v: currentAllTime.best, l: 'Best Score' },
               { v: currentAllTime.fwPct !== null ? currentAllTime.fwPct + '%' : '—', l: 'FW Hit %',
@@ -1858,7 +1862,7 @@ function HistoryScreen({ rounds, onViewRound, onEdit, onDelete, onRecover }) {
                 <div className="alltime-value" style={item.color ? { color: item.color } : undefined}>{item.v}</div>
                 <div className="alltime-label">{item.l}</div>
                 {item.delta && (
-                  <div className="alltime-delta" style={{ color: item.delta.good ? '#86efac' : '#ef6464' }}>
+                  <div className="alltime-delta" style={{ color: item.delta.good ? '#86efac' : '#d63838' }}>
                     {item.delta.sign} {item.delta.value !== 0 ? item.delta.value : 'same'}
                   </div>
                 )}
@@ -1961,23 +1965,31 @@ function HistoryScreen({ rounds, onViewRound, onEdit, onDelete, onRecover }) {
                 <span className="tag tag-tee">{r.tee}</span>
               </div>
 
-              {isExpanded && st && (
+              {isExpanded && (
                 <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
-                  <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: '0.82rem', color: 'var(--text-dim)', marginBottom: 10 }}>
-                    {st.fwPct !== null && <span>FW: {st.fwPct}%</span>}
-                    {st.girPct !== null && <span>GIR: {st.girPct}%</span>}
-                    {st.avgPutts && <span>Putts: {st.avgPutts}/hole</span>}
-                    <span>Eagle: {st.breakdown.eagle}</span>
-                    <span>Birdie: {st.breakdown.birdie}</span>
-                    <span>Par: {st.breakdown.par}</span>
-                    <span>Bogey: {st.breakdown.bogey}</span>
-                    <span>+2+: {st.breakdown.double + st.breakdown.worse}</span>
-                  </div>
+                  {st ? (
+                    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: '0.82rem', color: 'var(--text-dim)', marginBottom: 10 }}>
+                      {st.fwPct !== null && <span>FW: {st.fwPct}%</span>}
+                      {st.girPct !== null && <span>GIR: {st.girPct}%</span>}
+                      {st.avgPutts && <span>Putts: {st.avgPutts}/hole</span>}
+                      <span>Eagle: {st.breakdown.eagle}</span>
+                      <span>Birdie: {st.breakdown.birdie}</span>
+                      <span>Par: {st.breakdown.par}</span>
+                      <span>Bogey: {st.breakdown.bogey}</span>
+                      <span>+2+: {st.breakdown.double + st.breakdown.worse}</span>
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: 10, fontStyle: 'italic' }}>
+                      No scores recorded yet.
+                    </div>
+                  )}
                   <div style={{ display: 'flex', gap: 8 }}>
-                    <button className="btn btn-secondary btn-sm"
-                      onClick={e => { e.stopPropagation(); onViewRound(r); }}>
-                      View Analysis
-                    </button>
+                    {st && (
+                      <button className="btn btn-secondary btn-sm"
+                        onClick={e => { e.stopPropagation(); onViewRound(r); }}>
+                        View Analysis
+                      </button>
+                    )}
                     <button className="btn btn-secondary btn-sm"
                       onClick={e => { e.stopPropagation(); onEdit(r); }}>
                       Edit
