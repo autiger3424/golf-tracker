@@ -995,16 +995,21 @@ function HoleNotesSection({ holes }) {
 // ============================================================
 // ANALYSIS SCREEN
 // ============================================================
-function AnalysisScreen({ round, onSave, onNewRound, saved }) {
+function AnalysisScreen({ round, onSave, onNewRound, saved, onBack }) {
   const stats = calcStats(round.holes);
 
   if (!stats) {
     return (
       <div className="screen">
+        {onBack && (
+          <button className="btn btn-secondary btn-sm" style={{ marginBottom: 12 }} onClick={onBack}>
+            ← Back to History
+          </button>
+        )}
         <div className="empty-state">
           <div className="empty-state-text">No holes scored yet.</div>
         </div>
-        <button className="btn btn-secondary" style={{ marginTop: 16 }} onClick={onNewRound}>← Back</button>
+        <button className="btn btn-secondary" style={{ marginTop: 16 }} onClick={onBack || onNewRound}>← Back</button>
       </div>
     );
   }
@@ -1023,6 +1028,11 @@ function AnalysisScreen({ round, onSave, onNewRound, saved }) {
 
   return (
     <div className="screen">
+      {onBack && (
+        <button className="btn btn-secondary btn-sm" style={{ marginBottom: 10 }} onClick={onBack}>
+          ← Back to History
+        </button>
+      )}
       <h2 style={{ marginBottom: 14 }}>Round Analysis</h2>
 
       <div className="score-total-card">
@@ -2713,6 +2723,7 @@ function App() {
           round={historyRound}
           onSave={() => {}}
           onNewRound={() => { setHistoryRound(null); setScreen('history'); }}
+          onBack={() => { setHistoryRound(null); setScreen('history'); }}
           saved={true} />
       )}
       {screen === 'history' && (
