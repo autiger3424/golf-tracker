@@ -136,13 +136,23 @@ function calcStats(holes) {
   );
   let sgPutting = null;
   let sgPuttingPerHole = null;
+  let sgT2G = null;
+  let sgT2GPerHole = null;
   if (sgHoles.length) {
     const total = sgHoles.reduce((s, h) => s + (expectedPutts(h.firstPuttLength) - parseInt(h.putts)), 0);
     sgPutting = parseFloat(total.toFixed(2));
     sgPuttingPerHole = parseFloat((total / sgHoles.length).toFixed(2));
+    // SG Tee-to-Green = (par - score) - SG putting, summed across the same holes
+    const t2gTotal = sgHoles.reduce((s, h) => {
+      const sgTotal = parseInt(h.par) - parseInt(h.score);
+      const sgP = expectedPutts(h.firstPuttLength) - parseInt(h.putts);
+      return s + (sgTotal - sgP);
+    }, 0);
+    sgT2G = parseFloat(t2gTotal.toFixed(2));
+    sgT2GPerHole = parseFloat((t2gTotal / sgHoles.length).toFixed(2));
   }
 
-  return { totalScore, totalPar, scoreDiff, fwPct, girPct, avgPutts, sumPutts, breakdown, holesPlayed: played.length, front9, back9, parTypeStats, penaltyCount, bunkerCount, avgFirstPutt, sgPutting, sgPuttingPerHole, sgHolesCount: sgHoles.length };
+  return { totalScore, totalPar, scoreDiff, fwPct, girPct, avgPutts, sumPutts, breakdown, holesPlayed: played.length, front9, back9, parTypeStats, penaltyCount, bunkerCount, avgFirstPutt, sgPutting, sgPuttingPerHole, sgT2G, sgT2GPerHole, sgHolesCount: sgHoles.length };
 }
 
 // Strokes Gained: Putting baseline — expected putts to hole out from distance (PGA Tour avg)
@@ -842,6 +852,17 @@ function RoundScreen({ round, onUpdateHole, onFinish, onSave, saved, isManual, i
               {stats.fwPct !== null ? 'FW ' + stats.fwPct + '%' : ''}{stats.girPct !== null ? ' · GIR ' + stats.girPct + '%' : ''}
             </div>
           )}
+          {stats && (stats.sgPutting !== null || stats.sgT2G !== null) && (
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)' }}>
+              {stats.sgPutting !== null && (
+                <>SG Putt <span style={{ color: stats.sgPutting > 0 ? 'var(--red)' : stats.sgPutting < 0 ? 'var(--blue)' : 'var(--text)', fontWeight: 700 }}>{stats.sgPutting > 0 ? '+' : ''}{stats.sgPutting}</span></>
+              )}
+              {stats.sgPutting !== null && stats.sgT2G !== null && ' · '}
+              {stats.sgT2G !== null && (
+                <>SG T2G <span style={{ color: stats.sgT2G > 0 ? 'var(--red)' : stats.sgT2G < 0 ? 'var(--blue)' : 'var(--text)', fontWeight: 700 }}>{stats.sgT2G > 0 ? '+' : ''}{stats.sgT2G}</span></>
+              )}
+            </div>
+          )}
           <button
             onClick={onToggleLive}
             style={{
@@ -988,7 +1009,7 @@ function AnalysisScreen({ round, onSave, onNewRound, saved }) {
     );
   }
 
-  const { totalScore, totalPar, scoreDiff, fwPct, girPct, avgPutts, sumPutts, breakdown, holesPlayed, front9, back9, parTypeStats, penaltyCount, bunkerCount, avgFirstPutt, sgPutting, sgPuttingPerHole, sgHolesCount } = stats;
+  const { totalScore, totalPar, scoreDiff, fwPct, girPct, avgPutts, sumPutts, breakdown, holesPlayed, front9, back9, parTypeStats, penaltyCount, bunkerCount, avgFirstPutt, sgPutting, sgPuttingPerHole, sgT2G, sgT2GPerHole, sgHolesCount } = stats;
 
   const breakdownItems = [
     { label: 'Eagle / Better', count: breakdown.eagle, color: '#ffd700' },
@@ -1058,6 +1079,23 @@ function AnalysisScreen({ round, onSave, onNewRound, saved }) {
             <span style={{ color: 'var(--red)', fontWeight: 600 }}>Positive</span> = better than PGA Tour avg from that distance.{' '}
             <span style={{ color: 'var(--blue)', fontWeight: 600 }}>Negative</span> = more putts than expected.
             Requires both 1st putt distance and putt count to be recorded.
+          </div>
+        </div>
+      )}
+
+      {sgT2G !== null && (
+        <div className="card">
+          <div className="card-title">Strokes Gained: Tee-to-Green</div>
+          <div className="sg-putt-main" style={{ color: sgT2G > 0 ? 'var(--red)' : sgT2G < 0 ? 'var(--blue)' : 'var(--text)' }}>
+            {sgT2G > 0 ? '+' : ''}{sgT2G}
+          </div>
+          <div style={{ textAlign: 'center', fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 4 }}>
+            {sgT2GPerHole > 0 ? '+' : ''}{sgT2GPerHole} per hole · based on {sgHolesCount} hole{sgHolesCount !== 1 ? 's' : ''}
+          </div>
+          <div style={{ marginTop: 12, fontSize: '0.78rem', color: 'var(--text-dim)', lineHeight: 1.5 }}>
+            Score-vs-par minus SG Putting — measures everything from the tee through the approach.{' '}
+            <span style={{ color: 'var(--red)', fontWeight: 600 }}>Positive</span> = strokes gained off the green.{' '}
+            <span style={{ color: 'var(--blue)', fontWeight: 600 }}>Negative</span> = lost off the green.
           </div>
         </div>
       )}

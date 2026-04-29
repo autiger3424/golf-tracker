@@ -4,13 +4,14 @@ import { doc, onSnapshot } from 'firebase/firestore';
 
 // ─── Score helpers ────────────────────────────────────────────────────────────
 
+// Match the Round Analysis screen's score breakdown palette
 const SCORE_COLORS = {
-  eagle: '#b8860b',     // dark gold
-  birdie: '#2d6a4f',    // theme accent green
-  par: '#1e3a5f',       // navy (was light grey)
-  bogey: '#c47616',     // burnt orange
-  double: '#a61b1b',    // deep red
-  worse: '#5a0000',     // very dark red
+  eagle: '#ffd700',     // gold
+  birdie: '#991b1b',    // var(--red)
+  par: '#2d6a4f',       // var(--accent) — green
+  bogey: '#1e3a5f',     // var(--blue) — navy
+  double: '#ab47bc',    // pink/purple
+  worse: '#e64a19',     // orange-red (Triple+)
 };
 
 function getScoreColor(diff) {
@@ -110,11 +111,19 @@ function calcLiveStats(holes) {
     h.putts !== '' && h.putts !== null && h.putts !== undefined
   );
   let sgPutting = null;
+  let sgT2G = null;
   if (sgHoles.length) {
     const total = sgHoles.reduce(
       (s, h) => s + (expectedPutts(Number(h.firstPuttLength)) - Number(h.putts)), 0
     );
     sgPutting = parseFloat(total.toFixed(2));
+    // SG Tee-to-Green = (par - score) - SG putting, summed across the same holes
+    const sgT2GTotal = sgHoles.reduce((s, h) => {
+      const sgTotal = Number(h.par) - Number(h.score);
+      const sgP = expectedPutts(Number(h.firstPuttLength)) - Number(h.putts);
+      return s + (sgTotal - sgP);
+    }, 0);
+    sgT2G = parseFloat(sgT2GTotal.toFixed(2));
   }
 
   let eagles = 0, birdies = 0, pars = 0, bogeys = 0, doubles = 0, triples = 0, worse = 0;
@@ -148,7 +157,7 @@ function calcLiveStats(holes) {
 
   return {
     totalScore, totalPar, scoreDiff, holesPlayed: completed.length,
-    fwPct, girPct, puttsAvg, totalPutts, sgPutting,
+    fwPct, girPct, puttsAvg, totalPutts, sgPutting, sgT2G,
     eagles, birdies, pars, bogeys, doubles, triples, worse,
     bestHole, worstHole, streak: { type: streakType, count: streakCount },
   };
@@ -402,23 +411,42 @@ export default function LiveViewer({ liveId }) {
 
         {/* Live Stats Row */}
         {stats && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginTop: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginTop: 10 }}>
             {[
               { label: 'Fairways', value: stats.fwPct !== null ? stats.fwPct + '%' : '—' },
               { label: 'GIR', value: stats.girPct !== null ? stats.girPct + '%' : '—' },
               { label: 'Putts/Hole', value: stats.puttsAvg !== null ? stats.puttsAvg : '—' },
-              {
-                label: 'SG Putting',
-                value: stats.sgPutting !== null
-                  ? (stats.sgPutting > 0 ? '+' : '') + stats.sgPutting.toFixed(2)
-                  : '—',
-              },
             ].map(s => (
               <div key={s.label} className="card" style={{ textAlign: 'center', padding: '10px 4px' }}>
                 <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--accent)' }}>{s.value}</div>
                 <div style={{ fontSize: 10, color: 'var(--blue)', marginTop: 2, fontWeight: 600 }}>{s.label}</div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Strokes Gained Row */}
+        {stats && (stats.sgPutting !== null || stats.sgT2G !== null) && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginTop: 8 }}>
+            {[
+              { label: 'SG Putting', value: stats.sgPutting },
+              { label: 'SG Tee-to-Green', value: stats.sgT2G },
+            ].map(s => {
+              const display = s.value === null
+                ? '—'
+                : (s.value > 0 ? '+' : '') + s.value.toFixed(2);
+              const color = s.value === null
+                ? 'var(--blue)'
+                : s.value > 0 ? '#991b1b'
+                : s.value < 0 ? '#1e3a5f'
+                : 'var(--text)';
+              return (
+                <div key={s.label} className="card" style={{ textAlign: 'center', padding: '10px 4px' }}>
+                  <div style={{ fontSize: 20, fontWeight: 700, color }}>{display}</div>
+                  <div style={{ fontSize: 10, color: 'var(--blue)', marginTop: 2, fontWeight: 600 }}>{s.label}</div>
+                </div>
+              );
+            })}
           </div>
         )}
 
@@ -510,6 +538,8 @@ export default function LiveViewer({ liveId }) {
                 hole.gir ? 'GIR' : null,
                 hole.putts !== '' && hole.putts !== null && hole.putts !== undefined
                   ? hole.putts + ' putt' + (Number(hole.putts) !== 1 ? 's' : '') : null,
+                hole.firstPuttLength !== '' && hole.firstPuttLength !== null && hole.firstPuttLength !== undefined
+                  ? '1st putt ' + hole.firstPuttLength + 'ft' : null,
                 hole.fairwayHit === true ? 'FW Hit' : Number(hole.par) !== 3 && hole.fairwayHit === false ? 'FW Missed' : null,
               ].filter(Boolean).join(' · ');
 
