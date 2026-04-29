@@ -1774,10 +1774,63 @@ function HistoryScreen({ rounds, onViewRound, onEdit, onDelete, onRecover }) {
   const [filter, setFilter] = React.useState('all');
   const [expandedId, setExpandedId] = React.useState(null);
   const [excludedIds, setExcludedIds] = React.useState(() => new Set());
+  // Track which year / "year-month" groups are expanded.
+  // Default: most recent year + month opened, the rest collapsed.
+  const [expandedYears, setExpandedYears] = React.useState(() => new Set());
+  const [expandedMonths, setExpandedMonths] = React.useState(() => new Set());
+  const groupingInitRef = React.useRef(false);
 
   const filtered = rounds
     .filter(r => filter === 'all' || r.roundType === filter)
     .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  // Build year → month → rounds grouping
+  const grouped = React.useMemo(() => {
+    const byYear = new Map();
+    filtered.forEach(r => {
+      const d = new Date(r.date);
+      const y = d.getFullYear();
+      const m = d.getMonth(); // 0-11
+      const ym = `${y}-${m}`;
+      if (!byYear.has(y)) byYear.set(y, new Map());
+      const months = byYear.get(y);
+      if (!months.has(ym)) months.set(ym, { year: y, monthIdx: m, key: ym, rounds: [] });
+      months.get(ym).rounds.push(r);
+    });
+    const years = [...byYear.entries()]
+      .sort((a, b) => b[0] - a[0])
+      .map(([y, months]) => ({
+        year: y,
+        months: [...months.values()].sort((a, b) => b.monthIdx - a.monthIdx),
+      }));
+    return years;
+  }, [filtered]);
+
+  // Auto-expand most recent year + month on first load
+  React.useEffect(() => {
+    if (groupingInitRef.current) return;
+    if (grouped.length === 0) return;
+    const firstYear = grouped[0].year;
+    const firstMonth = grouped[0].months[0]?.key;
+    setExpandedYears(new Set([firstYear]));
+    if (firstMonth) setExpandedMonths(new Set([firstMonth]));
+    groupingInitRef.current = true;
+  }, [grouped]);
+
+  const toggleYear = (y) => {
+    setExpandedYears(prev => {
+      const next = new Set(prev);
+      if (next.has(y)) next.delete(y); else next.add(y);
+      return next;
+    });
+  };
+  const toggleMonth = (key) => {
+    setExpandedMonths(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
 
   const toggleIncluded = (id) => {
     setExcludedIds(prev => {
@@ -1788,6 +1841,9 @@ function HistoryScreen({ rounds, onViewRound, onEdit, onDelete, onRecover }) {
   };
   const includeAll = () => setExcludedIds(new Set());
   const excludeAll = () => setExcludedIds(new Set(filtered.map(r => r.id)));
+
+  const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
+                       'July', 'August', 'September', 'October', 'November', 'December'];
 
   const statsRounds = filtered.filter(r => !excludedIds.has(r.id));
   const excludedInFilter = filtered.length - statsRounds.length;
@@ -1813,6 +1869,8 @@ function HistoryScreen({ rounds, onViewRound, onEdit, onDelete, onRecover }) {
     };
     const sgArr = allStats.map(s => s.sgPutting).filter(x => x !== null);
     const avgSgPutting = sgArr.length ? parseFloat((sgArr.reduce((a, b) => a + b, 0) / sgArr.length).toFixed(2)) : null;
+    const sgT2GArr = allStats.map(s => s.sgT2G).filter(x => x !== null && x !== undefined);
+    const avgSgT2G = sgT2GArr.length ? parseFloat((sgT2GArr.reduce((a, b) => a + b, 0) / sgT2GArr.length).toFixed(2)) : null;
     const scoreDiffs = allStats.map(s => s.scoreDiff);
     const avgScoreDiff = scoreDiffs.length ? scoreDiffs.reduce((a, b) => a + b, 0) / scoreDiffs.length : 0;
     return {
@@ -1823,6 +1881,7 @@ function HistoryScreen({ rounds, onViewRound, onEdit, onDelete, onRecover }) {
       avgFirstPutt: firstPuttArr.length ? (firstPuttArr.reduce((a, b) => a + b, 0) / firstPuttArr.length).toFixed(1) : null,
       par3avg: parTypeDiffs(3), par4avg: parTypeDiffs(4), par5avg: parTypeDiffs(5),
       avgSgPutting,
+      avgSgT2G,
       avgScoreDiff,
     };
   };
@@ -1846,6 +1905,7 @@ function HistoryScreen({ rounds, onViewRound, onEdit, onDelete, onRecover }) {
           avgPutts: { curr: pct(latest.avgPutts), prior: pct(prior.avgPutts) },
           avgFirstPutt: { curr: pct(latest.avgFirstPutt), prior: pct(prior.avgFirstPutt) },
           avgSgPutting: { curr: latest.sgPutting, prior: prior.avgSgPutting },
+          avgSgT2G: { curr: latest.sgT2G, prior: prior.avgSgT2G },
         };
       })()
     : null;
@@ -1881,20 +1941,6 @@ function HistoryScreen({ rounds, onViewRound, onEdit, onDelete, onRecover }) {
             </span>
             <span style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-dim)', letterSpacing: 0 }}>
               {statsRounds.length} of {filtered.length} rounds
-              {excludedInFilter > 0 && (
-                <button
-                  onClick={includeAll}
-                  style={{ marginLeft: 8, background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 700, padding: 0 }}>
-                  include all
-                </button>
-              )}
-              {excludedInFilter === 0 && filtered.length > 0 && (
-                <button
-                  onClick={excludeAll}
-                  style={{ marginLeft: 8, background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 700, padding: 0 }}>
-                  exclude all
-                </button>
-              )}
             </span>
           </div>
           <div className="alltime-grid">
@@ -1914,6 +1960,8 @@ function HistoryScreen({ rounds, onViewRound, onEdit, onDelete, onRecover }) {
                 delta: latestStats && deltaLabel(latestStats.avgFirstPutt, true) },
               { v: currentAllTime.avgSgPutting !== null ? (currentAllTime.avgSgPutting > 0 ? '+' : '') + currentAllTime.avgSgPutting : '—', l: 'Avg SG: Putt',
                 delta: latestStats && deltaLabel(latestStats.avgSgPutting, false) },
+              { v: currentAllTime.avgSgT2G !== null ? (currentAllTime.avgSgT2G > 0 ? '+' : '') + currentAllTime.avgSgT2G : '—', l: 'Avg SG: T2G',
+                delta: latestStats && deltaLabel(latestStats.avgSgT2G, false) },
             ].map((item, i) => (
               <div key={i} className="alltime-box">
                 <div className="alltime-value" style={item.color ? { color: item.color } : undefined}>{item.v}</div>
@@ -1983,90 +2031,177 @@ function HistoryScreen({ rounds, onViewRound, onEdit, onDelete, onRecover }) {
           <div className="empty-state-text">No rounds saved yet.<br />Complete a round to see it here.</div>
         </div>
       ) : (
-        filtered.map(r => {
-          const st = calcStats(r.holes);
-          const isExpanded = expandedId === r.id;
-          const isIncluded = !excludedIds.has(r.id);
-          return (
-            <div key={r.id} className={'round-history-item' + (isIncluded ? '' : ' excluded-from-stats')}
-              onClick={() => setExpandedId(isExpanded ? null : r.id)}>
-              <div className="round-history-header">
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
-                  <input
-                    type="checkbox"
-                    checked={isIncluded}
-                    onClick={e => e.stopPropagation()}
-                    onChange={() => toggleIncluded(r.id)}
-                    title={isIncluded ? 'Included in stats · click to exclude' : 'Excluded from stats · click to include'}
-                    className="round-include-checkbox"
-                  />
-                  <div style={{ minWidth: 0 }}>
-                    <div className="round-history-course">{r.courseName}</div>
-                    <div className="round-history-date">{formatDate(r.date)} · {r.playerName}</div>
-                  </div>
-                </div>
-                <div className="round-history-score">
-                  {st?.totalScore ?? '—'}
-                  {st && (
-                    <div style={{ fontSize: '0.8rem', fontWeight: 600,
-                      color: st.scoreDiff < 0 ? 'var(--red)' : st.scoreDiff > 0 ? 'var(--blue)' : 'var(--text-dim)' }}>
-                      {scoreDiffLabel(st.scoreDiff)}
-                    </div>
-                  )}
-                </div>
-              </div>
-              <div className="round-history-meta">
-                <span className={'tag tag-' + r.roundType}>
-                  {r.roundType === 'competition' ? 'Competition' : 'Practice'}
-                </span>
-                <span className="tag tag-tee">{r.tee}</span>
-              </div>
-
-              {isExpanded && (
-                <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
-                  {st ? (
-                    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: '0.82rem', color: 'var(--text-dim)', marginBottom: 10 }}>
-                      {st.fwPct !== null && <span>FW: {st.fwPct}%</span>}
-                      {st.girPct !== null && <span>GIR: {st.girPct}%</span>}
-                      {st.avgPutts && <span>Putts: {st.avgPutts}/hole</span>}
-                      <span>Eagle: {st.breakdown.eagle}</span>
-                      <span>Birdie: {st.breakdown.birdie}</span>
-                      <span>Par: {st.breakdown.par}</span>
-                      <span>Bogey: {st.breakdown.bogey}</span>
-                      <span>+2+: {st.breakdown.double + st.breakdown.worse}</span>
-                    </div>
-                  ) : (
-                    <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: 10, fontStyle: 'italic' }}>
-                      No scores recorded yet.
-                    </div>
-                  )}
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    {st && (
-                      <button className="btn btn-secondary btn-sm"
-                        onClick={e => { e.stopPropagation(); onViewRound(r); }}>
-                        View Analysis
-                      </button>
-                    )}
-                    <button className="btn btn-secondary btn-sm"
-                      onClick={e => { e.stopPropagation(); onEdit(r); }}>
-                      Edit
-                    </button>
-                    <button className="btn btn-delete btn-sm"
-                      onClick={e => {
-                        e.stopPropagation();
-                        if (window.confirm(`Delete round at ${r.courseName} on ${formatDate(r.date)}? This cannot be undone.`)) {
-                          onDelete(r.id);
-                          setExpandedId(null);
-                        }
-                      }}>
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              )}
+        <>
+          {/* Stats inclusion controls — sit just above the rounds list */}
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            gap: 8, marginBottom: 10, padding: '10px 12px',
+            background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10,
+          }}>
+            <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--blue)' }}>
+              {statsRounds.length} of {filtered.length} included in stats
             </div>
-          );
-        })
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button
+                onClick={includeAll}
+                disabled={excludedInFilter === 0}
+                style={{
+                  background: excludedInFilter === 0 ? 'transparent' : 'var(--accent)',
+                  color: excludedInFilter === 0 ? 'var(--blue)' : 'var(--card)',
+                  border: '1px solid ' + (excludedInFilter === 0 ? 'var(--border)' : 'var(--accent)'),
+                  borderRadius: 16, padding: '4px 12px',
+                  fontSize: 11, fontWeight: 700, letterSpacing: 0.5,
+                  cursor: excludedInFilter === 0 ? 'default' : 'pointer',
+                  opacity: excludedInFilter === 0 ? 0.55 : 1,
+                }}
+              >CHECK ALL</button>
+              <button
+                onClick={excludeAll}
+                disabled={statsRounds.length === 0}
+                style={{
+                  background: 'transparent',
+                  color: 'var(--blue)',
+                  border: '1px solid var(--blue)',
+                  borderRadius: 16, padding: '4px 12px',
+                  fontSize: 11, fontWeight: 700, letterSpacing: 0.5,
+                  cursor: statsRounds.length === 0 ? 'default' : 'pointer',
+                  opacity: statsRounds.length === 0 ? 0.55 : 1,
+                }}
+              >UNCHECK ALL</button>
+            </div>
+          </div>
+
+          {/* Year → Month grouped, collapsible rounds list */}
+          {grouped.map(yearGroup => {
+            const yearOpen = expandedYears.has(yearGroup.year);
+            const yearTotal = yearGroup.months.reduce((s, m) => s + m.rounds.length, 0);
+            return (
+              <div key={yearGroup.year} style={{ marginBottom: 10 }}>
+                <button
+                  onClick={() => toggleYear(yearGroup.year)}
+                  style={{
+                    width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    background: 'var(--blue)', color: 'var(--card)',
+                    border: 'none', borderRadius: 10, padding: '10px 14px',
+                    fontSize: 14, fontWeight: 700, letterSpacing: 0.5,
+                    cursor: 'pointer', marginBottom: 6,
+                  }}
+                >
+                  <span>{yearGroup.year}</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, opacity: 0.85 }}>
+                    {yearTotal} round{yearTotal !== 1 ? 's' : ''} {yearOpen ? '▾' : '▸'}
+                  </span>
+                </button>
+                {yearOpen && yearGroup.months.map(monthGroup => {
+                  const monthOpen = expandedMonths.has(monthGroup.key);
+                  return (
+                    <div key={monthGroup.key} style={{ marginLeft: 8, marginBottom: 8 }}>
+                      <button
+                        onClick={() => toggleMonth(monthGroup.key)}
+                        style={{
+                          width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                          background: 'var(--surface)', color: 'var(--blue)',
+                          border: '1px solid var(--border)', borderRadius: 8, padding: '8px 12px',
+                          fontSize: 13, fontWeight: 700,
+                          cursor: 'pointer', marginBottom: 6,
+                        }}
+                      >
+                        <span>{MONTH_NAMES[monthGroup.monthIdx]} {monthGroup.year}</span>
+                        <span style={{ fontSize: 12, fontWeight: 600, opacity: 0.75 }}>
+                          {monthGroup.rounds.length} round{monthGroup.rounds.length !== 1 ? 's' : ''} {monthOpen ? '▾' : '▸'}
+                        </span>
+                      </button>
+                      {monthOpen && monthGroup.rounds.map(r => {
+                        const st = calcStats(r.holes);
+                        const isExpanded = expandedId === r.id;
+                        const isIncluded = !excludedIds.has(r.id);
+                        return (
+                          <div key={r.id} className={'round-history-item' + (isIncluded ? '' : ' excluded-from-stats')}
+                            onClick={() => setExpandedId(isExpanded ? null : r.id)}>
+                            <div className="round-history-header">
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
+                                <input
+                                  type="checkbox"
+                                  checked={isIncluded}
+                                  onClick={e => e.stopPropagation()}
+                                  onChange={() => toggleIncluded(r.id)}
+                                  title={isIncluded ? 'Included in stats · click to exclude' : 'Excluded from stats · click to include'}
+                                  className="round-include-checkbox"
+                                />
+                                <div style={{ minWidth: 0 }}>
+                                  <div className="round-history-course">{r.courseName}</div>
+                                  <div className="round-history-date">{formatDate(r.date)} · {r.playerName}</div>
+                                </div>
+                              </div>
+                              <div className="round-history-score">
+                                {st?.totalScore ?? '—'}
+                                {st && (
+                                  <div style={{ fontSize: '0.8rem', fontWeight: 600,
+                                    color: st.scoreDiff < 0 ? 'var(--red)' : st.scoreDiff > 0 ? 'var(--blue)' : 'var(--text-dim)' }}>
+                                    {scoreDiffLabel(st.scoreDiff)}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            <div className="round-history-meta">
+                              <span className={'tag tag-' + r.roundType}>
+                                {r.roundType === 'competition' ? 'Competition' : 'Practice'}
+                              </span>
+                              <span className="tag tag-tee">{r.tee}</span>
+                            </div>
+
+                            {isExpanded && (
+                              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+                                {st ? (
+                                  <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: '0.82rem', color: 'var(--text-dim)', marginBottom: 10 }}>
+                                    {st.fwPct !== null && <span>FW: {st.fwPct}%</span>}
+                                    {st.girPct !== null && <span>GIR: {st.girPct}%</span>}
+                                    {st.avgPutts && <span>Putts: {st.avgPutts}/hole</span>}
+                                    <span>Eagle: {st.breakdown.eagle}</span>
+                                    <span>Birdie: {st.breakdown.birdie}</span>
+                                    <span>Par: {st.breakdown.par}</span>
+                                    <span>Bogey: {st.breakdown.bogey}</span>
+                                    <span>+2+: {st.breakdown.double + st.breakdown.worse}</span>
+                                  </div>
+                                ) : (
+                                  <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: 10, fontStyle: 'italic' }}>
+                                    No scores recorded yet.
+                                  </div>
+                                )}
+                                <div style={{ display: 'flex', gap: 8 }}>
+                                  {st && (
+                                    <button className="btn btn-secondary btn-sm"
+                                      onClick={e => { e.stopPropagation(); onViewRound(r); }}>
+                                      View Analysis
+                                    </button>
+                                  )}
+                                  <button className="btn btn-secondary btn-sm"
+                                    onClick={e => { e.stopPropagation(); onEdit(r); }}>
+                                    Edit
+                                  </button>
+                                  <button className="btn btn-delete btn-sm"
+                                    onClick={e => {
+                                      e.stopPropagation();
+                                      if (window.confirm(`Delete round at ${r.courseName} on ${formatDate(r.date)}? This cannot be undone.`)) {
+                                        onDelete(r.id);
+                                        setExpandedId(null);
+                                      }
+                                    }}>
+                                    Delete
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </>
       )}
 
       <div style={{ marginTop: 24 }}>
