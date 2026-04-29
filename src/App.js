@@ -181,6 +181,25 @@ function createHolesFromTee(tee) {
   }));
 }
 
+// Find the next sequential unscored hole, wrapping around the round.
+// Used so the live broadcast shows the correct "next hole" when the
+// player starts mid-round (e.g. starts on 10 → next is 11, not 1).
+function findCurrentHole(holes) {
+  const isScored = h => h.score !== '' && h.score !== null && h.score !== undefined;
+  const scoredCount = holes.filter(isScored).length;
+  if (scoredCount === 0) return holes[0] || null;
+  if (scoredCount === holes.length) return null;
+  // Return the first unscored hole whose previous hole (wrapping)
+  // has been scored — i.e. the next sequential hole to play.
+  for (let i = 0; i < holes.length; i++) {
+    if (!isScored(holes[i])) {
+      const prevIdx = (i - 1 + holes.length) % holes.length;
+      if (isScored(holes[prevIdx])) return holes[i];
+    }
+  }
+  return holes.find(h => !isScored(h)) || null;
+}
+
 function createBlankHoles() {
   return Array.from({ length: 18 }, (_, i) => ({
     number: i + 1, par: 4, yards: 0,
@@ -2206,7 +2225,7 @@ function App() {
     if (liveDebounceRef.current) clearTimeout(liveDebounceRef.current);
 
     liveDebounceRef.current = setTimeout(() => {
-      const currentHoleObj = currentRound.holes.find(h => h.score === '' || h.score === null || h.score === undefined);
+      const currentHoleObj = findCurrentHole(currentRound.holes);
       const cleanHoles = currentRound.holes.map(h => {
         const clean = {};
         Object.keys(h).forEach(k => { if (h[k] !== undefined) clean[k] = h[k]; });
@@ -2325,7 +2344,7 @@ function App() {
       setShowSharePanel(true);
       setLiveStatus(null);
       if (db) {
-        const currentHoleObj = currentRound.holes.find(h => h.score === '' || h.score === null || h.score === undefined);
+        const currentHoleObj = findCurrentHole(currentRound.holes);
         // Strip undefined values from holes — Firestore rejects them
         const cleanHoles = currentRound.holes.map(h => {
           const clean = {};

@@ -5,16 +5,16 @@ import { doc, onSnapshot } from 'firebase/firestore';
 // ─── Score helpers ────────────────────────────────────────────────────────────
 
 const SCORE_COLORS = {
-  eagle: '#f4d03f',
-  birdie: '#52c41a',
-  par: '#e8e8e8',
-  bogey: '#f39c12',
-  double: '#ff4d4f',
-  worse: '#8b0000',
+  eagle: '#b8860b',     // dark gold
+  birdie: '#2d6a4f',    // theme accent green
+  par: '#1e3a5f',       // navy (was light grey)
+  bogey: '#c47616',     // burnt orange
+  double: '#a61b1b',    // deep red
+  worse: '#5a0000',     // very dark red
 };
 
 function getScoreColor(diff) {
-  if (diff === null || diff === undefined) return 'var(--text-muted)';
+  if (diff === null || diff === undefined) return 'var(--blue)';
   if (diff <= -2) return SCORE_COLORS.eagle;
   if (diff === -1) return SCORE_COLORS.birdie;
   if (diff === 0) return SCORE_COLORS.par;
@@ -25,20 +25,14 @@ function getScoreColor(diff) {
 
 function getScoreLabel(diff) {
   if (diff === null || diff === undefined) return '';
-  if (diff <= -2) return 'Eagle';
+  if (diff <= -3) return 'Albatross';
+  if (diff === -2) return 'Eagle';
   if (diff === -1) return 'Birdie';
   if (diff === 0) return 'Par';
   if (diff === 1) return 'Bogey';
-  if (diff === 2) return 'Double';
-  return 'Triple+';
-}
-
-function getScoreEmoji(diff) {
-  if (diff <= -2) return '🦅';
-  if (diff === -1) return '🐦';
-  if (diff === 0) return '✅';
-  if (diff === 1) return '😬';
-  return '😤';
+  if (diff === 2) return 'Double Bogey';
+  if (diff === 3) return 'Triple Bogey';
+  return `+${diff}`;
 }
 
 function formatTimeSince(ms) {
@@ -68,6 +62,28 @@ function playNotificationSound() {
   } catch (e) {}
 }
 
+// ─── Strokes Gained: Putting baseline (PGA Tour expected putts by feet) ──────
+const SG_PUTT_BASELINE = [
+  [0, 0], [1, 1.003], [2, 1.017], [3, 1.059], [4, 1.132], [5, 1.211],
+  [6, 1.289], [7, 1.366], [8, 1.437], [9, 1.502], [10, 1.562],
+  [12, 1.668], [14, 1.761], [16, 1.838], [18, 1.903], [20, 1.956],
+  [25, 2.040], [30, 2.097], [35, 2.136], [40, 2.162], [45, 2.181],
+  [50, 2.196], [60, 2.218], [70, 2.232], [75, 2.238],
+];
+
+function expectedPutts(distFt) {
+  if (distFt <= 0) return 0;
+  for (let i = 1; i < SG_PUTT_BASELINE.length; i++) {
+    const [d0, p0] = SG_PUTT_BASELINE[i - 1];
+    const [d1, p1] = SG_PUTT_BASELINE[i];
+    if (distFt <= d1) {
+      const t = (distFt - d0) / (d1 - d0);
+      return p0 + t * (p1 - p0);
+    }
+  }
+  return SG_PUTT_BASELINE[SG_PUTT_BASELINE.length - 1][1];
+}
+
 function calcLiveStats(holes) {
   const completed = holes.filter(h => h.score !== '' && h.score !== null && h.score !== undefined);
   if (completed.length === 0) return null;
@@ -88,7 +104,20 @@ function calcLiveStats(holes) {
   const totalPutts = puttHoles.reduce((s, h) => s + Number(h.putts), 0);
   const puttsAvg = puttHoles.length > 0 ? (totalPutts / puttHoles.length).toFixed(1) : null;
 
-  let eagles = 0, birdies = 0, pars = 0, bogeys = 0, doubles = 0, worse = 0;
+  // Strokes Gained: Putting (vs PGA Tour baseline) ─ needs first putt distance + putts
+  const sgHoles = completed.filter(h =>
+    h.firstPuttLength !== '' && h.firstPuttLength !== null && h.firstPuttLength !== undefined &&
+    h.putts !== '' && h.putts !== null && h.putts !== undefined
+  );
+  let sgPutting = null;
+  if (sgHoles.length) {
+    const total = sgHoles.reduce(
+      (s, h) => s + (expectedPutts(Number(h.firstPuttLength)) - Number(h.putts)), 0
+    );
+    sgPutting = parseFloat(total.toFixed(2));
+  }
+
+  let eagles = 0, birdies = 0, pars = 0, bogeys = 0, doubles = 0, triples = 0, worse = 0;
   completed.forEach(h => {
     const d = Number(h.score) - Number(h.par);
     if (d <= -2) eagles++;
@@ -96,6 +125,7 @@ function calcLiveStats(holes) {
     else if (d === 0) pars++;
     else if (d === 1) bogeys++;
     else if (d === 2) doubles++;
+    else if (d === 3) triples++;
     else worse++;
   });
 
@@ -118,8 +148,8 @@ function calcLiveStats(holes) {
 
   return {
     totalScore, totalPar, scoreDiff, holesPlayed: completed.length,
-    fwPct, girPct, puttsAvg, totalPutts,
-    eagles, birdies, pars, bogeys, doubles, worse,
+    fwPct, girPct, puttsAvg, totalPutts, sgPutting,
+    eagles, birdies, pars, bogeys, doubles, triples, worse,
     bestHole, worstHole, streak: { type: streakType, count: streakCount },
   };
 }
@@ -129,7 +159,7 @@ function calcLiveStats(holes) {
 const thStyle = {
   padding: '7px 3px',
   fontSize: 11,
-  color: 'var(--text-muted)',
+  color: 'var(--blue)',
   fontWeight: 700,
   textAlign: 'center',
   borderBottom: '1px solid var(--border)',
@@ -208,7 +238,7 @@ export default function LiveViewer({ liveId }) {
               const hole = pendingToastRef.current;
               if (!hole) return;
               const diff = Number(hole.score) - Number(hole.par);
-              const msg = `${getScoreEmoji(diff)} ${getScoreLabel(diff)} on Hole ${hole.number}!`;
+              const msg = `${getScoreLabel(diff)} on Hole ${hole.number}`;
               setToast(msg);
               setFlashHole(hole.number);
               setTimeout(() => setToast(null), 4000);
@@ -235,10 +265,9 @@ export default function LiveViewer({ liveId }) {
   if (loading) {
     return (
       <div style={centerStyle}>
-        <div style={{ fontSize: 48, animation: 'spin 1.5s linear infinite', display: 'inline-block' }}>⛳</div>
-        <div style={{ color: 'var(--text)', fontSize: 16, marginTop: 16, fontWeight: 700 }}>Connecting to live round…</div>
-        <div style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 6 }}>{liveId}</div>
-        <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+        <div style={{ color: 'var(--blue)', fontSize: 16, fontWeight: 700, letterSpacing: 2 }}>CONNECTING…</div>
+        <div style={{ color: 'var(--text)', fontSize: 16, marginTop: 16, fontWeight: 700 }}>Connecting to live round</div>
+        <div style={{ color: 'var(--blue)', fontSize: 13, marginTop: 6, fontFamily: 'monospace' }}>{liveId}</div>
       </div>
     );
   }
@@ -246,9 +275,8 @@ export default function LiveViewer({ liveId }) {
   if (notFound) {
     return (
       <div style={centerStyle}>
-        <div style={{ fontSize: 48 }}>🔍</div>
         <div style={{ color: 'var(--text)', fontSize: 20, fontWeight: 700, marginTop: 12 }}>Round not found</div>
-        <div style={{ color: 'var(--text-muted)', textAlign: 'center', marginTop: 8 }}>
+        <div style={{ color: 'var(--blue)', textAlign: 'center', marginTop: 8 }}>
           No active round found with code <strong style={{ color: 'var(--accent)', fontFamily: 'monospace' }}>{liveId}</strong>
         </div>
         <button
@@ -266,7 +294,11 @@ export default function LiveViewer({ liveId }) {
   const stats = calcLiveStats(data.holes);
   const isExpired = data.lastUpdate && (Date.now() - data.lastUpdate) > 24 * 60 * 60 * 1000;
   const completedHoles = data.holes.filter(h => h.score !== '' && h.score !== null && h.score !== undefined);
-  const currentHoleObj = data.holes.find(h => h.score === '' || h.score === null || h.score === undefined);
+  // Use server-supplied currentHole (computed sequentially), falling back to first empty hole
+  const currentHoleObj = data.currentHole
+    ? data.holes.find(h => h.number === data.currentHole && (h.score === '' || h.score === null || h.score === undefined))
+    : null
+    || data.holes.find(h => h.score === '' || h.score === null || h.score === undefined);
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', maxWidth: 600, margin: '0 auto', paddingBottom: 40 }}>
@@ -275,7 +307,7 @@ export default function LiveViewer({ liveId }) {
       {toast && (
         <div style={{
           position: 'fixed', top: 20, left: '50%', transform: 'translateX(-50%)',
-          background: 'var(--accent)', color: '#fff',
+          background: 'var(--blue)', color: 'var(--card)',
           padding: '12px 24px', borderRadius: 24, fontWeight: 700, fontSize: 15,
           zIndex: 999, boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
           animation: 'liveToastIn 0.3s ease',
@@ -295,25 +327,25 @@ export default function LiveViewer({ liveId }) {
             <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text)', lineHeight: 1.2 }}>
               {data.playerName}
             </div>
-            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 3 }}>
+            <div style={{ fontSize: 13, color: 'var(--blue)', marginTop: 3 }}>
               {data.courseName} · {data.tee}
             </div>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 5 }}>
             {data.isComplete ? (
-              <span style={badgeStyle('#52c41a')}>🏁 Complete</span>
+              <span style={badgeStyle('#2d6a4f')}>Complete</span>
             ) : isExpired ? (
-              <span style={badgeStyle('#ff4d4f')}>Ended</span>
+              <span style={badgeStyle('#a61b1b')}>Ended</span>
             ) : (
               <span className="live-badge">● LIVE</span>
             )}
-            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-              {data.roundType === 'competition' ? '🏆 Competition' : '⛳ Practice'}
+            <span style={{ fontSize: 11, color: 'var(--blue)', fontWeight: 700, letterSpacing: 0.5 }}>
+              {data.roundType === 'competition' ? 'Competition' : 'Practice'}
             </span>
           </div>
         </div>
         {!data.isComplete && !isExpired && timeSince && (
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>
+          <div style={{ fontSize: 11, color: 'var(--blue)', marginTop: 6 }}>
             Updated {timeSince}
           </div>
         )}
@@ -324,10 +356,10 @@ export default function LiveViewer({ liveId }) {
         {/* Complete Banner */}
         {data.isComplete && stats && (
           <div style={{
-            background: 'rgba(76,175,80,0.12)', border: '1px solid var(--accent)',
+            background: 'rgba(45,106,79,0.12)', border: '1px solid var(--accent)',
             borderRadius: 12, padding: '16px', textAlign: 'center', margin: '16px 0 0',
           }}>
-            <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent)' }}>Round Complete 🏁</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent)' }}>Round Complete</div>
             <div style={{ fontSize: 16, color: 'var(--text)', marginTop: 4 }}>
               {stats.totalScore} strokes · {stats.scoreDiff === 0 ? 'E' : (stats.scoreDiff > 0 ? '+' : '') + stats.scoreDiff}
             </div>
@@ -343,27 +375,27 @@ export default function LiveViewer({ liveId }) {
             }}>
               {stats.scoreDiff === 0 ? 'E' : (stats.scoreDiff > 0 ? '+' : '') + stats.scoreDiff}
             </div>
-            <div style={{ fontSize: 14, color: 'var(--text-muted)', marginTop: 4 }}>
+            <div style={{ fontSize: 14, color: 'var(--blue)', marginTop: 4 }}>
               {stats.totalScore} strokes
             </div>
             {!data.isComplete && currentHoleObj && (
               <div style={{
                 marginTop: 12, padding: '7px 16px',
-                background: 'rgba(76,175,80,0.1)',
-                border: '1px solid rgba(76,175,80,0.3)',
+                background: 'rgba(45,106,79,0.1)',
+                border: '1px solid rgba(45,106,79,0.3)',
                 borderRadius: 20, display: 'inline-block',
                 fontSize: 14, fontWeight: 700, color: 'var(--accent)',
                 animation: 'subtlePulse 2s infinite',
               }}>
-                ⛳ Playing Hole {currentHoleObj.number}
+                Playing Hole {currentHoleObj.number}
               </div>
             )}
-            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 8 }}>
+            <div style={{ fontSize: 13, color: 'var(--blue)', marginTop: 8 }}>
               Thru {stats.holesPlayed} hole{stats.holesPlayed !== 1 ? 's' : ''}
             </div>
           </div>
         ) : (
-          <div className="card" style={{ marginTop: 16, padding: '24px 16px', textAlign: 'center', color: 'var(--text-muted)' }}>
+          <div className="card" style={{ marginTop: 16, padding: '24px 16px', textAlign: 'center', color: 'var(--blue)' }}>
             Waiting for first score…
           </div>
         )}
@@ -375,25 +407,31 @@ export default function LiveViewer({ liveId }) {
               { label: 'Fairways', value: stats.fwPct !== null ? stats.fwPct + '%' : '—' },
               { label: 'GIR', value: stats.girPct !== null ? stats.girPct + '%' : '—' },
               { label: 'Putts/Hole', value: stats.puttsAvg !== null ? stats.puttsAvg : '—' },
-              { label: 'Birdies', value: stats.birdies },
+              {
+                label: 'SG Putting',
+                value: stats.sgPutting !== null
+                  ? (stats.sgPutting > 0 ? '+' : '') + stats.sgPutting.toFixed(2)
+                  : '—',
+              },
             ].map(s => (
               <div key={s.label} className="card" style={{ textAlign: 'center', padding: '10px 4px' }}>
                 <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--accent)' }}>{s.value}</div>
-                <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>{s.label}</div>
+                <div style={{ fontSize: 10, color: 'var(--blue)', marginTop: 2, fontWeight: 600 }}>{s.label}</div>
               </div>
             ))}
           </div>
         )}
 
-        {/* Score breakdown pills */}
+        {/* Score breakdown pills (text labels, no emojis) */}
         {stats && (
           <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
-            {stats.eagles > 0 && <ScorePill emoji="🦅" count={stats.eagles} color={SCORE_COLORS.eagle} />}
-            {stats.birdies > 0 && <ScorePill emoji="🐦" count={stats.birdies} color={SCORE_COLORS.birdie} />}
-            {stats.pars > 0 && <ScorePill emoji="⛳" count={stats.pars} color={SCORE_COLORS.par} />}
-            {stats.bogeys > 0 && <ScorePill emoji="😬" count={stats.bogeys} color={SCORE_COLORS.bogey} />}
-            {stats.doubles > 0 && <ScorePill emoji="😤" count={stats.doubles} color={SCORE_COLORS.double} />}
-            {stats.worse > 0 && <ScorePill emoji="💀" count={stats.worse} color={SCORE_COLORS.worse} />}
+            {stats.eagles > 0 && <ScorePill label="Eagle" count={stats.eagles} color={SCORE_COLORS.eagle} />}
+            {stats.birdies > 0 && <ScorePill label="Birdie" count={stats.birdies} color={SCORE_COLORS.birdie} />}
+            {stats.pars > 0 && <ScorePill label="Par" count={stats.pars} color={SCORE_COLORS.par} />}
+            {stats.bogeys > 0 && <ScorePill label="Bogey" count={stats.bogeys} color={SCORE_COLORS.bogey} />}
+            {stats.doubles > 0 && <ScorePill label="Double Bogey" count={stats.doubles} color={SCORE_COLORS.double} />}
+            {stats.triples > 0 && <ScorePill label="Triple Bogey" count={stats.triples} color={SCORE_COLORS.worse} />}
+            {stats.worse > 0 && <ScorePill label="Worse" count={stats.worse} color={SCORE_COLORS.worse} />}
           </div>
         )}
 
@@ -414,10 +452,10 @@ export default function LiveViewer({ liveId }) {
               )}
               {stats.streak.count > 1 && (
                 <div className="card" style={{ padding: '10px 14px', flex: 1, minWidth: 110 }}>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>STREAK</div>
+                  <div style={{ fontSize: 11, color: 'var(--blue)', marginBottom: 4, fontWeight: 700, letterSpacing: 0.5 }}>STREAK</div>
                   <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--accent)' }}>{stats.streak.count} in a row</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                    {stats.streak.type === 'under' ? '🔥 Under par' : stats.streak.type === 'par' ? 'Pars' : 'Over par'}
+                  <div style={{ fontSize: 12, color: 'var(--blue)' }}>
+                    {stats.streak.type === 'under' ? 'Under par' : stats.streak.type === 'par' ? 'Pars' : 'Over par'}
                   </div>
                 </div>
               )}
@@ -433,14 +471,14 @@ export default function LiveViewer({ liveId }) {
               <button
                 onClick={() => setSoundEnabled(s => !s)}
                 style={{
-                  background: soundEnabled ? 'rgba(76,175,80,0.15)' : 'none',
-                  border: `1px solid ${soundEnabled ? 'var(--accent)' : 'var(--border)'}`,
+                  background: soundEnabled ? 'rgba(45,106,79,0.15)' : 'none',
+                  border: `1px solid ${soundEnabled ? 'var(--accent)' : 'var(--blue)'}`,
                   borderRadius: 20, padding: '4px 12px',
-                  color: soundEnabled ? 'var(--accent)' : 'var(--text-muted)',
-                  fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                  color: soundEnabled ? 'var(--accent)' : 'var(--blue)',
+                  fontSize: 11, fontWeight: 700, cursor: 'pointer', letterSpacing: 0.5,
                 }}
               >
-                {soundEnabled ? '🔔 Alerts On' : '🔕 Alerts Off'}
+                {soundEnabled ? 'ALERTS ON' : 'ALERTS OFF'}
               </button>
             </div>
 
@@ -449,17 +487,16 @@ export default function LiveViewer({ liveId }) {
               <div style={{
                 display: 'flex', alignItems: 'center', gap: 12,
                 padding: '12px 14px', borderRadius: 10,
-                background: 'rgba(76,175,80,0.08)',
-                border: '1px solid rgba(76,175,80,0.3)',
+                background: 'rgba(45,106,79,0.08)',
+                border: '1px solid rgba(45,106,79,0.3)',
                 marginBottom: 6,
                 animation: 'subtlePulse 2s infinite',
               }}>
-                <span style={{ fontSize: 18 }}>📍</span>
                 <div>
                   <div style={{ fontWeight: 700, color: 'var(--accent)', fontSize: 14 }}>
                     Hole {currentHoleObj.number} — In Progress
                   </div>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                  <div style={{ fontSize: 12, color: 'var(--blue)' }}>
                     Par {currentHoleObj.par}{currentHoleObj.yards ? ' · ' + currentHoleObj.yards + 'y' : ''}
                   </div>
                 </div>
@@ -473,7 +510,7 @@ export default function LiveViewer({ liveId }) {
                 hole.gir ? 'GIR' : null,
                 hole.putts !== '' && hole.putts !== null && hole.putts !== undefined
                   ? hole.putts + ' putt' + (Number(hole.putts) !== 1 ? 's' : '') : null,
-                hole.fairwayHit === true ? 'FW ✓' : Number(hole.par) !== 3 && hole.fairwayHit === false ? 'FW ✗' : null,
+                hole.fairwayHit === true ? 'FW Hit' : Number(hole.par) !== 3 && hole.fairwayHit === false ? 'FW Missed' : null,
               ].filter(Boolean).join(' · ');
 
               return (
@@ -483,12 +520,11 @@ export default function LiveViewer({ liveId }) {
                   background: 'var(--card)', border: '1px solid var(--border)',
                   marginBottom: 6,
                 }}>
-                  <span style={{ fontSize: 16 }}>{getScoreEmoji(diff)}</span>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 700, color: getScoreColor(diff), fontSize: 14 }}>
                       Hole {hole.number} — {getScoreLabel(diff)} ({hole.score})
                     </div>
-                    {details && <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{details}</div>}
+                    {details && <div style={{ fontSize: 11, color: 'var(--blue)' }}>{details}</div>}
                   </div>
                 </div>
               );
@@ -511,14 +547,14 @@ export default function LiveViewer({ liveId }) {
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function ScorePill({ emoji, count, color }) {
+function ScorePill({ label, count, color }) {
   return (
     <span style={{
       padding: '3px 10px', borderRadius: 20,
       background: color + '22',
       color: color, fontSize: 12, fontWeight: 700,
     }}>
-      {emoji} {count}
+      {label} {count}
     </span>
   );
 }
@@ -526,9 +562,9 @@ function ScorePill({ emoji, count, color }) {
 function HighlightCard({ label, holeNum, diff, score }) {
   return (
     <div className="card" style={{ padding: '10px 14px', flex: 1, minWidth: 110 }}>
-      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 11, color: 'var(--blue)', marginBottom: 4, fontWeight: 700, letterSpacing: 0.5 }}>{label}</div>
       <div style={{ fontSize: 15, fontWeight: 700, color: getScoreColor(diff) }}>Hole {holeNum}</div>
-      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{getScoreLabel(diff)} ({score})</div>
+      <div style={{ fontSize: 12, color: 'var(--blue)' }}>{getScoreLabel(diff)} ({score})</div>
     </div>
   );
 }
@@ -554,20 +590,20 @@ function Scorecard({ data, flashHole, getScoreColor }) {
             {holes.map(h => (
               <th key={h.number} style={{
                 ...thStyle,
-                color: h.number === data.currentHole && !data.isComplete ? 'var(--accent)' : 'var(--text-muted)',
+                color: h.number === data.currentHole && !data.isComplete ? 'var(--accent)' : 'var(--blue)',
               }}>{h.number}</th>
             ))}
           </tr>
           <tr style={{ background: 'var(--card)' }}>
-            <td style={{ ...tdStyle, textAlign: 'left', paddingLeft: 8, color: 'var(--text-muted)', fontWeight: 600, fontSize: 11 }}>Par</td>
+            <td style={{ ...tdStyle, textAlign: 'left', paddingLeft: 8, color: 'var(--blue)', fontWeight: 600, fontSize: 11 }}>Par</td>
             {holes.map(h => (
-              <td key={h.number} style={{ ...tdStyle, color: 'var(--text-muted)' }}>{h.par}</td>
+              <td key={h.number} style={{ ...tdStyle, color: 'var(--blue)' }}>{h.par}</td>
             ))}
           </tr>
         </thead>
         <tbody>
           <tr>
-            <td style={{ ...tdStyle, textAlign: 'left', paddingLeft: 8, fontWeight: 700 }}>Score</td>
+            <td style={{ ...tdStyle, textAlign: 'left', paddingLeft: 8, fontWeight: 700, color: 'var(--text)' }}>Score</td>
             {holes.map(h => {
               const hasScore = h.score !== '' && h.score !== null && h.score !== undefined;
               const diff = hasScore ? Number(h.score) - Number(h.par) : null;
@@ -576,13 +612,13 @@ function Scorecard({ data, flashHole, getScoreColor }) {
               return (
                 <td key={h.number} style={{
                   ...tdStyle,
-                  color: hasScore ? getScoreColor(diff) : isCurrent ? 'var(--accent)' : 'var(--text-muted)',
+                  color: hasScore ? getScoreColor(diff) : isCurrent ? 'var(--accent)' : 'var(--blue)',
                   fontWeight: hasScore ? 700 : 400,
-                  background: isFlash ? 'rgba(76,175,80,0.35)' : isCurrent ? 'rgba(76,175,80,0.1)' : 'transparent',
+                  background: isFlash ? 'rgba(45,106,79,0.35)' : isCurrent ? 'rgba(45,106,79,0.1)' : 'transparent',
                   transition: 'background 0.6s ease',
-                  opacity: !hasScore && !isCurrent ? 0.35 : 1,
+                  opacity: !hasScore && !isCurrent ? 0.45 : 1,
                 }}>
-                  {hasScore ? h.score : isCurrent ? '▸' : '–'}
+                  {hasScore ? h.score : isCurrent ? '•' : '–'}
                 </td>
               );
             })}
@@ -609,7 +645,7 @@ function Scorecard({ data, flashHole, getScoreColor }) {
               {nineHoles.map(h => (
                 <th key={h.number} style={{
                   ...thStyle,
-                  color: h.number === data.currentHole && !data.isComplete ? 'var(--accent)' : 'var(--text-muted)',
+                  color: h.number === data.currentHole && !data.isComplete ? 'var(--accent)' : 'var(--blue)',
                 }}>{h.number}</th>
               ))}
               <th style={{ ...thStyle, color: 'var(--blue)', fontWeight: 800 }}>{totalLabel}</th>
@@ -618,25 +654,25 @@ function Scorecard({ data, flashHole, getScoreColor }) {
           </thead>
           <tbody>
             <tr style={{ background: 'var(--card2)' }}>
-              <td style={{ ...tdStyle, textAlign: 'left', paddingLeft: 8, color: 'var(--text-muted)', fontWeight: 600, fontSize: 11 }}>Par</td>
+              <td style={{ ...tdStyle, textAlign: 'left', paddingLeft: 8, color: 'var(--blue)', fontWeight: 600, fontSize: 11 }}>Par</td>
               {nineHoles.map(h => (
-                <td key={h.number} style={{ ...tdStyle, color: 'var(--text-muted)' }}>{h.par}</td>
+                <td key={h.number} style={{ ...tdStyle, color: 'var(--blue)' }}>{h.par}</td>
               ))}
               <td style={{ ...tdStyle, color: 'var(--blue)', fontWeight: 800 }}>{totalPar}</td>
               {showGrandTotal && <td style={{ ...tdStyle, color: 'var(--blue)', fontWeight: 800 }}>{grandPar}</td>}
             </tr>
             {hasYards && (
               <tr>
-                <td style={{ ...tdStyle, textAlign: 'left', paddingLeft: 8, color: 'var(--text-muted)', fontWeight: 600, fontSize: 11 }}>Yds</td>
+                <td style={{ ...tdStyle, textAlign: 'left', paddingLeft: 8, color: 'var(--blue)', fontWeight: 600, fontSize: 11 }}>Yds</td>
                 {nineHoles.map(h => (
-                  <td key={h.number} style={{ ...tdStyle, color: 'var(--text-muted)', fontSize: 11 }}>{h.yards || '—'}</td>
+                  <td key={h.number} style={{ ...tdStyle, color: 'var(--blue)', fontSize: 11 }}>{h.yards || '—'}</td>
                 ))}
-                <td style={{ ...tdStyle, color: 'var(--text-muted)', fontWeight: 700, fontSize: 11 }}>{sumYds(nineHoles) || '—'}</td>
-                {showGrandTotal && <td style={{ ...tdStyle, color: 'var(--text-muted)', fontWeight: 700, fontSize: 11 }}>{sumYds(holes) || '—'}</td>}
+                <td style={{ ...tdStyle, color: 'var(--blue)', fontWeight: 700, fontSize: 11 }}>{sumYds(nineHoles) || '—'}</td>
+                {showGrandTotal && <td style={{ ...tdStyle, color: 'var(--blue)', fontWeight: 700, fontSize: 11 }}>{sumYds(holes) || '—'}</td>}
               </tr>
             )}
             <tr>
-              <td style={{ ...tdStyle, textAlign: 'left', paddingLeft: 8, fontWeight: 700 }}>Score</td>
+              <td style={{ ...tdStyle, textAlign: 'left', paddingLeft: 8, fontWeight: 700, color: 'var(--text)' }}>Score</td>
               {nineHoles.map(h => {
                 const hasScore = h.score !== '' && h.score !== null && h.score !== undefined;
                 const diff = hasScore ? Number(h.score) - Number(h.par) : null;
@@ -645,13 +681,13 @@ function Scorecard({ data, flashHole, getScoreColor }) {
                 return (
                   <td key={h.number} style={{
                     ...tdStyle,
-                    color: hasScore ? getScoreColor(diff) : isCurrent ? 'var(--accent)' : 'var(--text-muted)',
+                    color: hasScore ? getScoreColor(diff) : isCurrent ? 'var(--accent)' : 'var(--blue)',
                     fontWeight: hasScore ? 700 : 400,
-                    background: isFlash ? 'rgba(76,175,80,0.35)' : isCurrent ? 'rgba(76,175,80,0.1)' : 'transparent',
+                    background: isFlash ? 'rgba(45,106,79,0.35)' : isCurrent ? 'rgba(45,106,79,0.1)' : 'transparent',
                     transition: 'background 0.6s ease',
-                    opacity: !hasScore && !isCurrent ? 0.35 : 1,
+                    opacity: !hasScore && !isCurrent ? 0.45 : 1,
                   }}>
-                    {hasScore ? h.score : isCurrent ? '▸' : '–'}
+                    {hasScore ? h.score : isCurrent ? '•' : '–'}
                   </td>
                 );
               })}
@@ -682,20 +718,20 @@ function Scorecard({ data, flashHole, getScoreColor }) {
             onClick={() => setView('compact')}
             style={{
               background: view === 'compact' ? 'var(--accent)' : 'transparent',
-              color: view === 'compact' ? 'var(--accent-text, white)' : 'var(--text-muted)',
+              color: view === 'compact' ? 'var(--card)' : 'var(--blue)',
               border: 'none', borderRadius: 16, padding: '4px 12px',
-              fontSize: 11, fontWeight: 600, cursor: 'pointer',
+              fontSize: 11, fontWeight: 700, cursor: 'pointer', letterSpacing: 0.5,
             }}
-          >Compact</button>
+          >COMPACT</button>
           <button
             onClick={() => setView('full')}
             style={{
               background: view === 'full' ? 'var(--accent)' : 'transparent',
-              color: view === 'full' ? 'var(--accent-text, white)' : 'var(--text-muted)',
+              color: view === 'full' ? 'var(--card)' : 'var(--blue)',
               border: 'none', borderRadius: 16, padding: '4px 12px',
-              fontSize: 11, fontWeight: 600, cursor: 'pointer',
+              fontSize: 11, fontWeight: 700, cursor: 'pointer', letterSpacing: 0.5,
             }}
-          >Full</button>
+          >FULL</button>
         </div>
       </div>
       {view === 'compact' ? renderCompactTable() : (
@@ -718,10 +754,10 @@ const centerStyle = {
 
 const backBtnStyle = {
   background: 'none',
-  border: '1px solid var(--border)',
+  border: '1px solid var(--blue)',
   borderRadius: 10, padding: '12px 20px',
-  color: 'var(--text-muted)', fontSize: 14, cursor: 'pointer',
-  marginTop: 16,
+  color: 'var(--blue)', fontSize: 14, cursor: 'pointer',
+  marginTop: 16, fontWeight: 700,
 };
 
 const badgeStyle = (color) => ({
