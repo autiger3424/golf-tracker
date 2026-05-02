@@ -859,7 +859,133 @@ function CodeCopyBox({ code }) {
   );
 }
 
-function RoundScreen({ round, onUpdateHole, onFinish, onSave, saved, isManual, isLive, liveId, onToggleLive, showSharePanel, onShowShare, onHideShare, liveStatus, liveSyncing }) {
+// ============================================================
+// OPPONENTS PANEL — track opponent names + scores per hole
+// ============================================================
+function OpponentsPanel({ opponents, holes, onAdd, onRemove, onUpdate, onUpdateScore }) {
+  const [open, setOpen] = React.useState(opponents.length > 0);
+
+  React.useEffect(() => {
+    if (opponents.length > 0) setOpen(true);
+  }, [opponents.length]);
+
+  const totalScore = (opp) => (opp.scores || []).reduce((s, v) => s + (v !== '' && v !== null && v !== undefined ? parseInt(v) || 0 : 0), 0);
+  const playedHoles = (opp) => (opp.scores || []).filter(v => v !== '' && v !== null && v !== undefined).length;
+  const totalParPlayed = (opp) => (opp.scores || [])
+    .map((v, i) => (v !== '' && v !== null && v !== undefined ? holes[i]?.par || 0 : 0))
+    .reduce((a, b) => a + b, 0);
+
+  return (
+    <div className={'collapsible-card' + (open ? ' open' : '')} style={{ marginBottom: 10 }}>
+      <button className="collapsible-header" onClick={() => setOpen(o => !o)}>
+        <span>Opponents{opponents.length > 0 ? ` (${opponents.length})` : ''}</span>
+        <span className="collapsible-chevron">{open ? '▴' : '▾'}</span>
+      </button>
+      {open && (
+        <div className="collapsible-body">
+          {opponents.length === 0 && (
+            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>
+              Track an opponent's name and score per hole. No fairways, putts, or other stats — just score.
+            </div>
+          )}
+          {opponents.map((opp) => {
+            const total = totalScore(opp);
+            const played = playedHoles(opp);
+            const parPlayed = totalParPlayed(opp);
+            const diff = played > 0 ? total - parPlayed : null;
+            return (
+              <div key={opp.id} style={{
+                background: 'var(--card)', border: '1px solid var(--border)',
+                borderRadius: 10, padding: 12, marginBottom: 10,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                  <input
+                    type="text"
+                    value={opp.name}
+                    onChange={(e) => onUpdate(opp.id, { name: e.target.value })}
+                    placeholder="Opponent name"
+                    maxLength={40}
+                    style={{
+                      flex: 1, fontSize: '0.95rem', fontWeight: 600,
+                      padding: '7px 10px', borderRadius: 8,
+                      border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)',
+                    }}
+                  />
+                  <div style={{ textAlign: 'right', minWidth: 70 }}>
+                    <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--blue)' }}>
+                      {played > 0 ? total : '—'}
+                    </div>
+                    {diff !== null && (
+                      <div style={{ fontSize: '0.72rem', fontWeight: 700,
+                        color: diff < 0 ? 'var(--red)' : diff > 0 ? 'var(--blue)' : 'var(--text-dim)' }}>
+                        {scoreDiffLabel(diff)} · {played} hole{played !== 1 ? 's' : ''}
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => {
+                      if (window.confirm(`Remove ${opp.name || 'this opponent'} from the round?`)) onRemove(opp.id);
+                    }}
+                    title="Remove opponent"
+                    style={{
+                      background: 'transparent', border: '1px solid var(--red)',
+                      color: 'var(--red)', borderRadius: 8, padding: '6px 10px',
+                      fontSize: 11, fontWeight: 700, cursor: 'pointer', letterSpacing: 0.5,
+                    }}
+                  >REMOVE</button>
+                </div>
+
+                {/* 18 hole score grid (3 rows × 6 cols) */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 4 }}>
+                  {holes.map((hole, i) => {
+                    const v = opp.scores?.[i] ?? '';
+                    const score = v !== '' ? parseInt(v) : null;
+                    const d = score !== null ? score - hole.par : null;
+                    const color = d === null ? 'var(--text)'
+                      : d < 0 ? 'var(--red)'
+                      : d > 0 ? 'var(--blue)'
+                      : 'var(--accent)';
+                    return (
+                      <div key={hole.number} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                        <div style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 700 }}>
+                          {hole.number} · P{hole.par}
+                        </div>
+                        <input
+                          type="number"
+                          inputMode="numeric"
+                          min={1}
+                          max={20}
+                          value={v}
+                          onChange={(e) => onUpdateScore(opp.id, i, e.target.value)}
+                          placeholder="—"
+                          style={{
+                            width: '100%', textAlign: 'center', fontSize: 14, fontWeight: 700,
+                            padding: '6px 0', borderRadius: 6,
+                            border: '1px solid var(--border)', background: 'var(--bg)',
+                            color, MozAppearance: 'textfield',
+                          }}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+          <button
+            onClick={onAdd}
+            className="btn btn-secondary"
+            style={{ width: '100%', fontWeight: 700 }}
+          >
+            + Add Opponent
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RoundScreen({ round, onUpdateHole, onAddOpponent, onRemoveOpponent, onUpdateOpponent, onUpdateOpponentScore, onFinish, onSave, saved, isManual, isLive, liveId, onToggleLive, showSharePanel, onShowShare, onHideShare, liveStatus, liveSyncing }) {
   const stats = calcStats(round.holes);
   const [copied, setCopied] = React.useState(false);
 
@@ -1008,6 +1134,14 @@ function RoundScreen({ round, onUpdateHole, onFinish, onSave, saved, isManual, i
       )}
 
       <div className="screen" style={{ paddingTop: 12 }}>
+        <OpponentsPanel
+          opponents={round.opponents || []}
+          holes={round.holes}
+          onAdd={onAddOpponent}
+          onRemove={onRemoveOpponent}
+          onUpdate={onUpdateOpponent}
+          onUpdateScore={onUpdateOpponentScore}
+        />
         {round.holes.map((hole, i) => (
           <HoleCard key={hole.number} hole={hole} isManual={isManual}
             onChange={(updates) => onUpdateHole(i, updates)} />
@@ -2536,6 +2670,7 @@ function App() {
         teeColor: setup.selectedTee.color,
         isManual: true,
         holes: createHolesFromTee(setup.selectedTee),
+        opponents: [],
       };
       setCurrentRound(round);
       setRoundSaved(false);
@@ -2556,6 +2691,7 @@ function App() {
       tee: tee.name,
       teeColor: tee.color,
       holes: createHolesFromTee(tee),
+      opponents: [],
     };
     setCurrentRound(round);
     setRoundSaved(false);
@@ -2568,6 +2704,43 @@ function App() {
       holes[index] = { ...holes[index], ...updates };
       return { ...prev, holes };
     });
+  }, []);
+
+  const handleAddOpponent = useCallback(() => {
+    setCurrentRound(prev => {
+      const holeCount = prev.holes.length || 18;
+      const opponents = prev.opponents || [];
+      return {
+        ...prev,
+        opponents: [...opponents, { id: genId(), name: '', scores: Array(holeCount).fill('') }],
+      };
+    });
+  }, []);
+
+  const handleRemoveOpponent = useCallback((opponentId) => {
+    setCurrentRound(prev => ({
+      ...prev,
+      opponents: (prev.opponents || []).filter(o => o.id !== opponentId),
+    }));
+  }, []);
+
+  const handleUpdateOpponent = useCallback((opponentId, updates) => {
+    setCurrentRound(prev => ({
+      ...prev,
+      opponents: (prev.opponents || []).map(o => o.id === opponentId ? { ...o, ...updates } : o),
+    }));
+  }, []);
+
+  const handleUpdateOpponentScore = useCallback((opponentId, holeIndex, score) => {
+    setCurrentRound(prev => ({
+      ...prev,
+      opponents: (prev.opponents || []).map(o => {
+        if (o.id !== opponentId) return o;
+        const scores = [...(o.scores || [])];
+        scores[holeIndex] = score;
+        return { ...o, scores };
+      }),
+    }));
   }, []);
 
   const handleToggleLive = async () => {
@@ -2773,6 +2946,10 @@ function App() {
         <RoundScreen
           round={currentRound}
           onUpdateHole={handleUpdateHole}
+          onAddOpponent={handleAddOpponent}
+          onRemoveOpponent={handleRemoveOpponent}
+          onUpdateOpponent={handleUpdateOpponent}
+          onUpdateOpponentScore={handleUpdateOpponentScore}
           onFinish={() => setScreen('analysis')}
           onSave={handleSaveRound}
           saved={roundSaved}
