@@ -466,6 +466,15 @@ export default function LiveViewer({ liveId }) {
         {/* Scorecard */}
         <Scorecard data={data} flashHole={flashHole} getScoreColor={getScoreColor} />
 
+        {/* Opponents leaderboard */}
+        <OpponentsLeaderboard
+          opponents={data.opponents}
+          holes={data.holes}
+          playerName={data.playerName}
+          playerStats={stats}
+          getScoreColor={getScoreColor}
+        />
+
 
         {/* Highlights */}
         {stats && (stats.bestHole || stats.streak.count > 1) && (
@@ -576,6 +585,151 @@ export default function LiveViewer({ liveId }) {
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
+
+function OpponentsLeaderboard({ opponents, holes, playerName, playerStats, getScoreColor }) {
+  if (!opponents || opponents.length === 0) return null;
+
+  // Build a unified leaderboard row per competitor (player + opponents)
+  const buildRow = (name, scores) => {
+    const validScores = scores
+      .map((s, i) => ({ s, par: holes[i]?.par }))
+      .filter(x => x.s !== '' && x.s !== null && x.s !== undefined);
+    const totalScore = validScores.reduce((sum, x) => sum + Number(x.s), 0);
+    const totalPar = validScores.reduce((sum, x) => sum + Number(x.par || 0), 0);
+    const played = validScores.length;
+    const diff = played > 0 ? totalScore - totalPar : null;
+    return { name, totalScore, diff, played, scores };
+  };
+
+  const playerRow = buildRow(playerName || 'You', holes.map(h => h.score));
+  const oppRows = opponents.map(o => buildRow(o.name || 'Opponent', o.scores || []));
+
+  // Sort by score-to-par (lowest first), unplayed last
+  const allRows = [{ ...playerRow, isPlayer: true }, ...oppRows.map(r => ({ ...r, isPlayer: false }))]
+    .sort((a, b) => {
+      if (a.played === 0 && b.played === 0) return 0;
+      if (a.played === 0) return 1;
+      if (b.played === 0) return -1;
+      return (a.diff ?? 0) - (b.diff ?? 0);
+    });
+
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div style={{ fontWeight: 700, color: 'var(--text)', fontSize: 15, marginBottom: 10 }}>
+        Leaderboard
+      </div>
+
+      {/* Standings */}
+      <div style={{ overflow: 'hidden', borderRadius: 10, border: '1px solid var(--border)', marginBottom: 12 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ background: 'var(--surface)' }}>
+              <th style={{ ...thStyle, textAlign: 'left', paddingLeft: 10, width: 32 }}>#</th>
+              <th style={{ ...thStyle, textAlign: 'left' }}>Player</th>
+              <th style={thStyle}>Thru</th>
+              <th style={thStyle}>To Par</th>
+              <th style={thStyle}>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {allRows.map((row, i) => {
+              const diffColor = row.diff === null ? 'var(--blue)'
+                : row.diff < 0 ? '#991b1b'
+                : row.diff > 0 ? '#1e3a5f'
+                : '#2d6a4f';
+              return (
+                <tr key={i} style={{
+                  background: row.isPlayer ? 'rgba(45,106,79,0.08)' : 'transparent',
+                  borderBottom: '1px solid var(--border)',
+                }}>
+                  <td style={{ ...tdStyle, textAlign: 'left', paddingLeft: 10, fontWeight: 800, color: 'var(--blue)' }}>
+                    {i + 1}
+                  </td>
+                  <td style={{ ...tdStyle, textAlign: 'left', fontWeight: 700, color: 'var(--text)' }}>
+                    {row.name}{row.isPlayer && <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--accent)', fontWeight: 700, letterSpacing: 0.5 }}>YOU</span>}
+                  </td>
+                  <td style={{ ...tdStyle, color: 'var(--blue)', fontWeight: 700 }}>
+                    {row.played > 0 ? row.played : '—'}
+                  </td>
+                  <td style={{ ...tdStyle, color: diffColor, fontWeight: 800 }}>
+                    {row.diff === null ? '—' : row.diff === 0 ? 'E' : (row.diff > 0 ? '+' : '') + row.diff}
+                  </td>
+                  <td style={{ ...tdStyle, color: 'var(--text)', fontWeight: 800 }}>
+                    {row.played > 0 ? row.totalScore : '—'}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Per-hole side-by-side scorecard */}
+      <OpponentHoleGrid
+        rows={[{ name: playerName || 'You', scores: holes.map(h => h.score), isPlayer: true }]
+          .concat(opponents.map(o => ({ name: o.name || 'Opponent', scores: o.scores || [], isPlayer: false })))}
+        holes={holes}
+        getScoreColor={getScoreColor}
+      />
+    </div>
+  );
+}
+
+function OpponentHoleGrid({ rows, holes, getScoreColor }) {
+  return (
+    <div style={{ overflowX: 'auto', borderRadius: 10, border: '1px solid var(--border)' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <thead>
+          <tr style={{ background: 'var(--surface)' }}>
+            <th style={{ ...thStyle, textAlign: 'left', paddingLeft: 8, position: 'sticky', left: 0, background: 'var(--surface)', minWidth: 90 }}>
+              Hole
+            </th>
+            {holes.map(h => (
+              <th key={h.number} style={thStyle}>{h.number}</th>
+            ))}
+          </tr>
+          <tr style={{ background: 'var(--card2)' }}>
+            <td style={{ ...tdStyle, textAlign: 'left', paddingLeft: 8, color: 'var(--blue)', fontWeight: 600, fontSize: 11, position: 'sticky', left: 0, background: 'var(--card2)' }}>
+              Par
+            </td>
+            {holes.map(h => (
+              <td key={h.number} style={{ ...tdStyle, color: 'var(--blue)' }}>{h.par}</td>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, ri) => (
+            <tr key={ri} style={{ background: row.isPlayer ? 'rgba(45,106,79,0.06)' : 'transparent' }}>
+              <td style={{
+                ...tdStyle, textAlign: 'left', paddingLeft: 8, fontWeight: 700,
+                color: 'var(--text)', position: 'sticky', left: 0,
+                background: row.isPlayer ? 'rgba(216,220,206,0.95)' : 'var(--card)',
+                minWidth: 90, maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>
+                {row.name}
+              </td>
+              {holes.map((h, i) => {
+                const v = row.scores[i];
+                const hasScore = v !== '' && v !== null && v !== undefined;
+                const diff = hasScore ? Number(v) - Number(h.par) : null;
+                return (
+                  <td key={h.number} style={{
+                    ...tdStyle,
+                    color: hasScore ? getScoreColor(diff) : 'var(--blue)',
+                    fontWeight: hasScore ? 700 : 400,
+                    opacity: hasScore ? 1 : 0.45,
+                  }}>
+                    {hasScore ? v : '–'}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 function ScorePill({ label, count, color }) {
   return (

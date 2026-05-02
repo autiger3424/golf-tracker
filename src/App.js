@@ -2611,12 +2611,18 @@ function App() {
         Object.keys(h).forEach(k => { if (h[k] !== undefined) clean[k] = h[k]; });
         return clean;
       });
+      const cleanOpponents = (currentRound.opponents || []).map(o => ({
+        id: o.id || '',
+        name: o.name || '',
+        scores: (o.scores || []).map(s => (s === '' || s === null || s === undefined) ? '' : String(s)),
+      }));
       const liveData = {
         playerName: currentRound.playerName || '',
         courseName: currentRound.courseName || '',
         tee: currentRound.tee || '',
         roundType: currentRound.roundType || '',
         holes: cleanHoles,
+        opponents: cleanOpponents,
         currentHole: currentHoleObj ? currentHoleObj.number : 18,
         lastUpdate: Date.now(),
         isComplete: false,
@@ -2770,12 +2776,18 @@ function App() {
           Object.keys(h).forEach(k => { if (h[k] !== undefined) clean[k] = h[k]; });
           return clean;
         });
+        const cleanOpponents = (currentRound.opponents || []).map(o => ({
+          id: o.id || '',
+          name: o.name || '',
+          scores: (o.scores || []).map(s => (s === '' || s === null || s === undefined) ? '' : String(s)),
+        }));
         const liveData = {
           playerName: currentRound.playerName || '',
           courseName: currentRound.courseName || '',
           tee: currentRound.tee || '',
           roundType: currentRound.roundType || '',
           holes: cleanHoles,
+          opponents: cleanOpponents,
           currentHole: currentHoleObj ? currentHoleObj.number : 1,
           lastUpdate: Date.now(),
           isComplete: false,
