@@ -720,9 +720,30 @@ function SetupScreen({ onStart, preloadCourseName, customCourses, onSaveCustomCo
 // ============================================================
 // TEE SELECT SCREEN
 // ============================================================
-function TeeSelectScreen({ course, onSelectTee, onBack }) {
+function TeeSelectScreen({ course, onSelectTee, onBack, onRenameCourse }) {
   const [selected, setSelected] = React.useState(null);
+  const [editingName, setEditingName] = React.useState(false);
+  const [draftName, setDraftName] = React.useState(course.name);
+  const inputRef = React.useRef(null);
   const totalYards = (tee) => tee.holes.reduce((s, h) => s + h.yards, 0);
+
+  React.useEffect(() => { setDraftName(course.name); }, [course.name]);
+  React.useEffect(() => {
+    if (editingName && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [editingName]);
+
+  const commitRename = () => {
+    const trimmed = draftName.trim();
+    if (trimmed && trimmed !== course.name && onRenameCourse) {
+      onRenameCourse(trimmed);
+    } else {
+      setDraftName(course.name);
+    }
+    setEditingName(false);
+  };
 
   return (
     <div className="screen">
@@ -730,7 +751,49 @@ function TeeSelectScreen({ course, onSelectTee, onBack }) {
         ← Back
       </button>
       <div style={{ marginBottom: 20 }}>
-        <h2>{course.name}</h2>
+        {editingName ? (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input
+              ref={inputRef}
+              type="text"
+              value={draftName}
+              onChange={(e) => setDraftName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') commitRename();
+                if (e.key === 'Escape') { setDraftName(course.name); setEditingName(false); }
+              }}
+              onBlur={commitRename}
+              maxLength={80}
+              style={{
+                flex: 1, fontSize: '1.25rem', fontWeight: 600,
+                padding: '6px 10px', borderRadius: 8,
+                border: '1.5px solid var(--accent)', background: 'var(--card)', color: 'var(--text)',
+              }}
+            />
+            <button
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={commitRename}
+              style={{
+                background: 'var(--accent)', color: 'var(--card)', border: 'none',
+                borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 700,
+                cursor: 'pointer', letterSpacing: 0.5,
+              }}
+            >SAVE</button>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <h2 style={{ margin: 0 }}>{course.name}</h2>
+            <button
+              onClick={() => setEditingName(true)}
+              title="Edit course name"
+              style={{
+                background: 'transparent', border: '1px solid var(--blue)', color: 'var(--blue)',
+                borderRadius: 16, padding: '3px 10px', fontSize: 11, fontWeight: 700,
+                cursor: 'pointer', letterSpacing: 0.5,
+              }}
+            >EDIT NAME</button>
+          </div>
+        )}
         {course.location && <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>{course.location}</p>}
       </div>
       <p style={{ color: 'var(--text-dim)', marginBottom: 14, fontSize: '0.9rem' }}>
@@ -2695,7 +2758,16 @@ function App() {
         <TeeSelectScreen
           course={pendingSetup.course}
           onSelectTee={handleTeeSelect}
-          onBack={() => setScreen('setup')} />
+          onBack={() => setScreen('setup')}
+          onRenameCourse={(newName) => {
+            // Update pending setup so the round picks up the new name
+            setPendingSetup(prev => prev ? { ...prev, course: { ...prev.course, name: newName } } : prev);
+            // Persist for custom (Firestore-backed) courses so the rename sticks
+            const c = pendingSetup.course;
+            if (c.isCustom || (typeof c.id === 'string' && c.id.startsWith('custom_'))) {
+              handleSaveCustomCourse({ ...c, name: newName, isCustom: true });
+            }
+          }} />
       )}
       {screen === 'round' && currentRound && (
         <RoundScreen
