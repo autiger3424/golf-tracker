@@ -596,9 +596,22 @@ function SetupScreen({ onStart, preloadCourseName, customCourses, onSaveCustomCo
       onSaveCustomCourse(course);
       onStart({ playerName: playerName.trim(), roundType, course, selectedTee: tee });
     } else {
-      const course = selectedCourse
-        ? { id: selectedCourse.id, name: selectedCourse.name, location: selectedCourse.location, tees: selectedCourse.tees }
-        : { id: 'scanned', name: scannedTees.courseName || 'Scanned Course', location: '', tees: scannedTees.tees };
+      let course;
+      if (selectedCourse) {
+        // Pass through full course incl. isCustom flag so renames know whether to overwrite the existing doc
+        course = {
+          id: selectedCourse.id,
+          name: selectedCourse.name,
+          location: selectedCourse.location,
+          tees: selectedCourse.tees,
+          isCustom: !!selectedCourse.isCustom,
+        };
+      } else {
+        // Scan path — use the same custom_<name> id as the auto-saved doc so rename overwrites the right Firestore record
+        const scannedName = scannedTees.courseName || 'Scanned Course';
+        const scannedId = 'custom_' + scannedName.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+        course = { id: scannedId, name: scannedName, location: '', tees: scannedTees.tees, isCustom: true };
+      }
       onStart({ playerName: playerName.trim(), roundType, course });
     }
   };
@@ -2946,12 +2959,17 @@ function App() {
           onBack={() => setScreen('setup')}
           onRenameCourse={(newName) => {
             // Update pending setup so the round picks up the new name
-            setPendingSetup(prev => prev ? { ...prev, course: { ...prev.course, name: newName } } : prev);
-            // Persist for custom (Firestore-backed) courses so the rename sticks
+            setPendingSetup(prev => prev ? { ...prev, course: { ...prev.course, name: newName, isCustom: true } } : prev);
+            // Persist every rename to Firestore so the new name is in the database next time.
+            // - Custom/scanned courses (string id starting with custom_) overwrite in place
+            // - Built-in courses (numeric id) are saved as a new custom doc keyed off the original id
+            //   so the original built-in stays intact and the renamed copy joins the user's custom courses
             const c = pendingSetup.course;
-            if (c.isCustom || (typeof c.id === 'string' && c.id.startsWith('custom_'))) {
-              handleSaveCustomCourse({ ...c, name: newName, isCustom: true });
-            }
+            const isAlreadyCustom = !!c.isCustom || (typeof c.id === 'string' && c.id.startsWith('custom_'));
+            const id = isAlreadyCustom
+              ? c.id
+              : 'custom_override_' + String(c.id);
+            handleSaveCustomCourse({ ...c, id, name: newName, isCustom: true });
           }} />
       )}
       {screen === 'round' && currentRound && (
