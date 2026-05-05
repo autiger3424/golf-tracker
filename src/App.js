@@ -911,27 +911,28 @@ function OpponentsPanel({ opponents, holes, onAdd, onRemove, onUpdate, onUpdateS
                 background: 'var(--card)', border: '1px solid var(--border)',
                 borderRadius: 10, padding: 12, marginBottom: 10,
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
                   <input
                     type="text"
                     value={opp.name}
                     onChange={(e) => onUpdate(opp.id, { name: e.target.value })}
-                    placeholder="Opponent name"
+                    placeholder="Name"
                     maxLength={40}
                     style={{
-                      flex: 1, fontSize: '0.95rem', fontWeight: 600,
-                      padding: '7px 10px', borderRadius: 8,
+                      flex: '1 1 0', minWidth: 0, width: 0,
+                      fontSize: '0.9rem', fontWeight: 600,
+                      padding: '6px 8px', borderRadius: 8,
                       border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)',
                     }}
                   />
-                  <div style={{ textAlign: 'right', minWidth: 70 }}>
-                    <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--blue)' }}>
+                  <div style={{ textAlign: 'right', flex: '0 0 auto' }}>
+                    <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--blue)', lineHeight: 1.1 }}>
                       {played > 0 ? total : '—'}
                     </div>
                     {diff !== null && (
-                      <div style={{ fontSize: '0.72rem', fontWeight: 700,
+                      <div style={{ fontSize: '0.7rem', fontWeight: 700, lineHeight: 1.1,
                         color: diff < 0 ? 'var(--red)' : diff > 0 ? 'var(--blue)' : 'var(--text-dim)' }}>
-                        {scoreDiffLabel(diff)} · {played} hole{played !== 1 ? 's' : ''}
+                        {scoreDiffLabel(diff)} · {played}
                       </div>
                     )}
                   </div>
@@ -941,9 +942,10 @@ function OpponentsPanel({ opponents, holes, onAdd, onRemove, onUpdate, onUpdateS
                     }}
                     title="Remove opponent"
                     style={{
+                      flex: '0 0 auto',
                       background: 'transparent', border: '1px solid var(--red)',
-                      color: 'var(--red)', borderRadius: 8, padding: '6px 10px',
-                      fontSize: 11, fontWeight: 700, cursor: 'pointer', letterSpacing: 0.5,
+                      color: 'var(--red)', borderRadius: 8, padding: '5px 8px',
+                      fontSize: 10, fontWeight: 700, cursor: 'pointer', letterSpacing: 0.3,
                     }}
                   >REMOVE</button>
                 </div>
