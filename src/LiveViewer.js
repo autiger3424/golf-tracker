@@ -587,6 +587,8 @@ export default function LiveViewer({ liveId }) {
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function OpponentsLeaderboard({ opponents, holes, playerName, playerStats, getScoreColor }) {
+  const [expanded, setExpanded] = React.useState(true);
+
   if (!opponents || opponents.length === 0) return null;
 
   // Build a unified leaderboard row per competitor (player + opponents)
@@ -613,14 +615,33 @@ function OpponentsLeaderboard({ opponents, holes, playerName, playerStats, getSc
       return (a.diff ?? 0) - (b.diff ?? 0);
     });
 
+  // Rows for the per-hole scorecard (fixed order: player first, then opponents in input order)
+  const cardRows = [{ name: playerName || 'You', scores: holes.map(h => h.score), isPlayer: true }]
+    .concat(opponents.map(o => ({ name: o.name || 'Opponent', scores: o.scores || [], isPlayer: false })));
+
   return (
     <div style={{ marginTop: 16 }}>
-      <div style={{ fontWeight: 700, color: 'var(--text)', fontSize: 15, marginBottom: 10 }}>
-        Leaderboard
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+        <div style={{ fontWeight: 700, color: 'var(--text)', fontSize: 15 }}>
+          Leaderboard
+        </div>
+        <button
+          onClick={() => setExpanded(e => !e)}
+          style={{
+            background: 'transparent',
+            border: '1px solid var(--blue)',
+            color: 'var(--blue)',
+            borderRadius: 16, padding: '4px 12px',
+            fontSize: 11, fontWeight: 700, letterSpacing: 0.5,
+            cursor: 'pointer',
+          }}
+        >
+          {expanded ? 'MINIMIZE ▴' : 'EXPAND ▾'}
+        </button>
       </div>
 
-      {/* Standings */}
-      <div style={{ overflow: 'hidden', borderRadius: 10, border: '1px solid var(--border)', marginBottom: 12 }}>
+      {/* Standings — always visible, so names + current scores stay in view when minimized */}
+      <div style={{ overflow: 'hidden', borderRadius: 10, border: '1px solid var(--border)', marginBottom: expanded ? 12 : 0 }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: 'var(--surface)' }}>
@@ -664,67 +685,126 @@ function OpponentsLeaderboard({ opponents, holes, playerName, playerStats, getSc
         </table>
       </div>
 
-      {/* Per-hole side-by-side scorecard */}
-      <OpponentHoleGrid
-        rows={[{ name: playerName || 'You', scores: holes.map(h => h.score), isPlayer: true }]
-          .concat(opponents.map(o => ({ name: o.name || 'Opponent', scores: o.scores || [], isPlayer: false })))}
-        holes={holes}
-        getScoreColor={getScoreColor}
-      />
+      {/* Per-hole side-by-side scorecard, split 1-9 / 10-18 like a real scorecard */}
+      {expanded && (
+        <>
+          <OpponentNineTable
+            rows={cardRows}
+            holes={holes}
+            sliceStart={0}
+            totalLabel="OUT"
+            showGrandTotal={false}
+            getScoreColor={getScoreColor}
+          />
+          {holes.length > 9 && (
+            <OpponentNineTable
+              rows={cardRows}
+              holes={holes}
+              sliceStart={9}
+              totalLabel="IN"
+              showGrandTotal={true}
+              getScoreColor={getScoreColor}
+            />
+          )}
+        </>
+      )}
     </div>
   );
 }
 
-function OpponentHoleGrid({ rows, holes, getScoreColor }) {
+function OpponentNineTable({ rows, holes, sliceStart, totalLabel, showGrandTotal, getScoreColor }) {
+  const nineHoles = holes.slice(sliceStart, sliceStart + 9);
+  const sumPar = (slice) => slice.reduce((s, h) => s + Number(h.par || 0), 0);
+  const sumScores = (scores, slice, offset) => {
+    let total = 0, played = 0;
+    for (let i = 0; i < slice.length; i++) {
+      const v = scores[i + offset];
+      if (v !== '' && v !== null && v !== undefined) {
+        total += Number(v);
+        played += 1;
+      }
+    }
+    return { total, played };
+  };
+  const sumAll = (scores) => {
+    let total = 0, played = 0;
+    for (let i = 0; i < holes.length; i++) {
+      const v = scores[i];
+      if (v !== '' && v !== null && v !== undefined) {
+        total += Number(v);
+        played += 1;
+      }
+    }
+    return { total, played };
+  };
+  const ninePar = sumPar(nineHoles);
+  const grandPar = showGrandTotal ? sumPar(holes) : null;
+
   return (
-    <div style={{ overflowX: 'auto', borderRadius: 10, border: '1px solid var(--border)' }}>
+    <div style={{ overflowX: 'auto', borderRadius: 10, border: '1px solid var(--border)', marginBottom: 10 }}>
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
           <tr style={{ background: 'var(--surface)' }}>
             <th style={{ ...thStyle, textAlign: 'left', paddingLeft: 8, position: 'sticky', left: 0, background: 'var(--surface)', minWidth: 90 }}>
               Hole
             </th>
-            {holes.map(h => (
+            {nineHoles.map(h => (
               <th key={h.number} style={thStyle}>{h.number}</th>
             ))}
+            <th style={{ ...thStyle, color: 'var(--blue)', fontWeight: 800 }}>{totalLabel}</th>
+            {showGrandTotal && <th style={{ ...thStyle, color: 'var(--blue)', fontWeight: 800 }}>TOT</th>}
           </tr>
           <tr style={{ background: 'var(--card2)' }}>
             <td style={{ ...tdStyle, textAlign: 'left', paddingLeft: 8, color: 'var(--blue)', fontWeight: 600, fontSize: 11, position: 'sticky', left: 0, background: 'var(--card2)' }}>
               Par
             </td>
-            {holes.map(h => (
+            {nineHoles.map(h => (
               <td key={h.number} style={{ ...tdStyle, color: 'var(--blue)' }}>{h.par}</td>
             ))}
+            <td style={{ ...tdStyle, color: 'var(--blue)', fontWeight: 800 }}>{ninePar}</td>
+            {showGrandTotal && <td style={{ ...tdStyle, color: 'var(--blue)', fontWeight: 800 }}>{grandPar}</td>}
           </tr>
         </thead>
         <tbody>
-          {rows.map((row, ri) => (
-            <tr key={ri} style={{ background: row.isPlayer ? 'rgba(45,106,79,0.06)' : 'transparent' }}>
-              <td style={{
-                ...tdStyle, textAlign: 'left', paddingLeft: 8, fontWeight: 700,
-                color: 'var(--text)', position: 'sticky', left: 0,
-                background: row.isPlayer ? 'rgba(216,220,206,0.95)' : 'var(--card)',
-                minWidth: 90, maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-              }}>
-                {row.name}
-              </td>
-              {holes.map((h, i) => {
-                const v = row.scores[i];
-                const hasScore = v !== '' && v !== null && v !== undefined;
-                const diff = hasScore ? Number(v) - Number(h.par) : null;
-                return (
-                  <td key={h.number} style={{
-                    ...tdStyle,
-                    color: hasScore ? getScoreColor(diff) : 'var(--blue)',
-                    fontWeight: hasScore ? 700 : 400,
-                    opacity: hasScore ? 1 : 0.45,
-                  }}>
-                    {hasScore ? v : '–'}
+          {rows.map((row, ri) => {
+            const nine = sumScores(row.scores, nineHoles, sliceStart);
+            const grand = showGrandTotal ? sumAll(row.scores) : null;
+            return (
+              <tr key={ri} style={{ background: row.isPlayer ? 'rgba(45,106,79,0.06)' : 'transparent' }}>
+                <td style={{
+                  ...tdStyle, textAlign: 'left', paddingLeft: 8, fontWeight: 700,
+                  color: 'var(--text)', position: 'sticky', left: 0,
+                  background: row.isPlayer ? 'rgba(216,220,206,0.95)' : 'var(--card)',
+                  minWidth: 90, maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}>
+                  {row.name}
+                </td>
+                {nineHoles.map((h, i) => {
+                  const v = row.scores[i + sliceStart];
+                  const hasScore = v !== '' && v !== null && v !== undefined;
+                  const diff = hasScore ? Number(v) - Number(h.par) : null;
+                  return (
+                    <td key={h.number} style={{
+                      ...tdStyle,
+                      color: hasScore ? getScoreColor(diff) : 'var(--blue)',
+                      fontWeight: hasScore ? 700 : 400,
+                      opacity: hasScore ? 1 : 0.45,
+                    }}>
+                      {hasScore ? v : '–'}
+                    </td>
+                  );
+                })}
+                <td style={{ ...tdStyle, color: 'var(--accent)', fontWeight: 800 }}>
+                  {nine.played > 0 ? nine.total : '—'}
+                </td>
+                {showGrandTotal && (
+                  <td style={{ ...tdStyle, color: 'var(--accent)', fontWeight: 800 }}>
+                    {grand.played > 0 ? grand.total : '—'}
                   </td>
-                );
-              })}
-            </tr>
-          ))}
+                )}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
