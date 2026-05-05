@@ -1271,6 +1271,10 @@ function AnalysisScreen({ round, onSave, onNewRound, saved, onBack }) {
           <div className="stat-box-label">GIR</div>
         </div>
         <div className="stat-box">
+          <div className="stat-box-value">{sumPutts ?? '—'}</div>
+          <div className="stat-box-label">Total Putts</div>
+        </div>
+        <div className="stat-box">
           <div className="stat-box-value">{avgPutts ?? '—'}</div>
           <div className="stat-box-label">Avg Putts</div>
         </div>
@@ -1279,12 +1283,6 @@ function AnalysisScreen({ round, onSave, onNewRound, saved, onBack }) {
           <div className="stat-box-label">Avg 1st Putt</div>
         </div>
       </div>
-
-      {sumPutts !== null && (
-        <div style={{ textAlign: 'center', fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: -6, marginBottom: 12 }}>
-          Total putts: {sumPutts}
-        </div>
-      )}
 
       {sgPutting !== null && (
         <div className="card">
