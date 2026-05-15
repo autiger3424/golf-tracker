@@ -2664,6 +2664,44 @@ function App() {
     }
   }, []);
 
+  // ── One-time backfill: populate blank tees from prior rounds ───────
+  // Earlier versions did not write a round's entered par/yards back to
+  // the saved course, so manually-created courses kept their blank
+  // placeholders. This migration looks at each custom course's tees and,
+  // if a tee has no yardage data, copies par/yards from the most recent
+  // round played on that course+tee.
+  React.useEffect(() => {
+    if (localStorage.getItem('golf_courses_holes_backfilled')) return;
+    if (!customCourses.length || !rounds.length) return;
+
+    const roundsByDate = [...rounds].sort((a, b) => new Date(b.date) - new Date(a.date));
+    const updates = [];
+
+    customCourses.forEach(course => {
+      const isCustom = course.isCustom || (typeof course.id === 'string' && course.id.startsWith('custom_'));
+      if (!isCustom || !course.tees?.length) return;
+
+      let changed = false;
+      const updatedTees = course.tees.map(tee => {
+        const isBlank = !tee.holes?.length || tee.holes.every(h => !h.yards);
+        if (!isBlank) return tee;
+        const sourceRound = roundsByDate.find(r =>
+          r.courseId === course.id &&
+          r.tee === tee.name &&
+          r.holes?.some(h => h.yards > 0 || (h.par && h.par !== 4))
+        );
+        if (!sourceRound) return tee;
+        changed = true;
+        return { ...tee, holes: sourceRound.holes.map(h => ({ number: h.number, par: h.par, yards: h.yards })) };
+      });
+
+      if (changed) updates.push({ ...course, tees: updatedTees, isCustom: true });
+    });
+
+    localStorage.setItem('golf_courses_holes_backfilled', 'true');
+    updates.forEach(handleSaveCustomCourse);
+  }, [customCourses, rounds, handleSaveCustomCourse]);
+
   const handleDeleteCustomCourse = useCallback(async (courseId) => {
     if (db) {
       try { await deleteDoc(doc(db, 'courses', courseId)); } catch (e) { console.error(e); }
@@ -2830,6 +2868,22 @@ function App() {
       const newRounds = [currentRound, ...rounds];
       setRounds(newRounds);
       saveRoundsToStorage(newRounds);
+    }
+    // Persist per-hole par/distance back to the saved custom course so the
+    // next round on the same course+tee prefills with the values the user
+    // entered manually (instead of the blank par=4, yards=0 defaults).
+    if (currentRound.courseId) {
+      const baseCourse =
+        customCourses.find(c => c.id === currentRound.courseId) ||
+        (pendingSetup?.course?.id === currentRound.courseId ? pendingSetup.course : null);
+      const isCustomCourse = !!(baseCourse && (baseCourse.isCustom || (typeof baseCourse.id === 'string' && baseCourse.id.startsWith('custom_'))));
+      if (baseCourse && isCustomCourse) {
+        const holeData = currentRound.holes.map(h => ({ number: h.number, par: h.par, yards: h.yards }));
+        const updatedTees = (baseCourse.tees || []).map(t =>
+          t.name === currentRound.tee ? { ...t, holes: holeData } : t
+        );
+        handleSaveCustomCourse({ ...baseCourse, tees: updatedTees, isCustom: true });
+      }
     }
     // Mark live round complete when saving
     if (isLiveRef.current && liveIdRef.current && db) {
