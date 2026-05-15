@@ -904,12 +904,12 @@ function OpponentsPanel({ playerName, opponents, holes, onAdd, onRemove, onUpdat
     ...opponents.map(o => ({ id: o.id, name: o.name || '', isYou: false, scores: o.scores || Array(holes.length).fill('') })),
   ];
 
-  const gridCols = (n) => `54px repeat(${n}, minmax(0, 1fr)) 36px`;
+  const gridCols = (n) => `70px repeat(${n}, minmax(0, 1fr)) 36px`;
   const cellBase = { display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 28, fontSize: 12, fontWeight: 700, borderRadius: 4 };
   const headerCell = { ...cellBase, fontSize: 10, fontWeight: 800, color: 'var(--text-muted)', letterSpacing: 0.3, background: 'transparent', minHeight: 18 };
   const parCell = { ...cellBase, background: 'var(--card2)', color: 'var(--text-dim)' };
   const totalCell = { ...cellBase, background: 'var(--card2)', color: 'var(--blue)', fontWeight: 800 };
-  const nameCell = { ...cellBase, justifyContent: 'flex-start', paddingLeft: 4, gap: 4, overflow: 'hidden' };
+  const nameCell = { ...cellBase, justifyContent: 'flex-start', paddingLeft: 6, gap: 4, overflow: 'hidden' };
 
   function renderNine(sectionLabel, totalLabel, sectionHoles, parTotal, startIdx) {
     const n = sectionHoles.length;
@@ -919,13 +919,13 @@ function OpponentsPanel({ playerName, opponents, holes, onAdd, onRemove, onUpdat
       <div style={{ marginBottom: 12 }}>
         {/* Hole number header */}
         <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 2, marginBottom: 2 }}>
-          <div style={{ ...headerCell, justifyContent: 'flex-start', paddingLeft: 4 }}>{sectionLabel}</div>
+          <div style={{ ...headerCell, justifyContent: 'flex-start', paddingLeft: 6 }}>{sectionLabel}</div>
           {sectionHoles.map(h => <div key={h.number} style={headerCell}>{h.number}</div>)}
           <div style={headerCell}>{totalLabel}</div>
         </div>
         {/* Par row */}
         <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 2, marginBottom: 2 }}>
-          <div style={{ ...parCell, justifyContent: 'flex-start', paddingLeft: 4, fontSize: 10 }}>PAR</div>
+          <div style={{ ...parCell, justifyContent: 'flex-start', paddingLeft: 6, fontSize: 10 }}>PAR</div>
           {sectionHoles.map(h => <div key={h.number} style={parCell}>{h.par || '–'}</div>)}
           <div style={totalCell}>{parTotal || '–'}</div>
         </div>
@@ -939,36 +939,14 @@ function OpponentsPanel({ playerName, opponents, holes, onAdd, onRemove, onUpdat
           return (
             <div key={p.id} style={{ display: 'grid', gridTemplateColumns: cols, gap: 2, marginBottom: 2 }}>
               <div style={nameCell}>
-                {p.isYou ? (
-                  <span style={{ fontSize: 11, fontWeight: 800, color: 'var(--blue)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {p.name}
-                  </span>
-                ) : startIdx === 0 ? (
-                  <>
-                    <input
-                      type="text" value={p.name} placeholder="Name" maxLength={20}
-                      onChange={e => onUpdate(p.id, { name: e.target.value })}
-                      style={{
-                        flex: 1, minWidth: 0, fontSize: 11, fontWeight: 700,
-                        padding: '3px 4px', borderRadius: 4,
-                        border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)',
-                      }}
-                    />
-                    <button
-                      onClick={() => { if (window.confirm(`Remove ${p.name || 'this opponent'}?`)) onRemove(p.id); }}
-                      title="Remove opponent"
-                      style={{
-                        flex: '0 0 auto', padding: 0, width: 18, height: 18, lineHeight: '14px',
-                        background: 'transparent', border: '1px solid var(--red)', color: 'var(--red)',
-                        borderRadius: 4, fontSize: 12, fontWeight: 700, cursor: 'pointer',
-                      }}
-                    >×</button>
-                  </>
-                ) : (
-                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {p.name || '—'}
-                  </span>
-                )}
+                <span style={{
+                  fontSize: 11, fontWeight: p.isYou ? 800 : 700,
+                  color: p.isYou ? 'var(--blue)' : 'var(--text)',
+                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                  maxWidth: '100%',
+                }}>
+                  {p.isYou ? p.name : (p.name || 'Opponent')}
+                </span>
               </div>
               {sectionHoles.map((h, j) => {
                 const i = startIdx + j;
@@ -1017,6 +995,34 @@ function OpponentsPanel({ playerName, opponents, holes, onAdd, onRemove, onUpdat
           {opponents.length === 0 && (
             <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
               Add opponents to track their score alongside yours, hole by hole.
+            </div>
+          )}
+          {opponents.length > 0 && (
+            <div style={{ marginBottom: 14 }}>
+              {opponents.map(o => (
+                <div key={o.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                  <input
+                    type="text" value={o.name || ''} placeholder="Opponent name" maxLength={30}
+                    onChange={e => onUpdate(o.id, { name: e.target.value })}
+                    style={{
+                      flex: 1, minWidth: 0,
+                      fontSize: 14, fontWeight: 600,
+                      padding: '8px 10px', borderRadius: 8,
+                      border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)',
+                    }}
+                  />
+                  <button
+                    onClick={() => { if (window.confirm(`Remove ${o.name || 'this opponent'} from the round?`)) onRemove(o.id); }}
+                    title="Remove opponent"
+                    style={{
+                      flex: '0 0 auto', width: 32, height: 32, padding: 0,
+                      background: 'transparent', border: '1px solid var(--red)',
+                      color: 'var(--red)', borderRadius: 8,
+                      fontSize: 18, fontWeight: 700, cursor: 'pointer', lineHeight: 1,
+                    }}
+                  >×</button>
+                </div>
+              ))}
             </div>
           )}
           {renderNine('FRONT', 'OUT', front, parOut, 0)}
