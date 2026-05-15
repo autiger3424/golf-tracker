@@ -2831,6 +2831,22 @@ function App() {
       setRounds(newRounds);
       saveRoundsToStorage(newRounds);
     }
+    // Persist per-hole par/distance back to the saved custom course so the
+    // next round on the same course+tee prefills with the values the user
+    // entered manually (instead of the blank par=4, yards=0 defaults).
+    if (currentRound.courseId) {
+      const baseCourse =
+        customCourses.find(c => c.id === currentRound.courseId) ||
+        (pendingSetup?.course?.id === currentRound.courseId ? pendingSetup.course : null);
+      const isCustomCourse = !!(baseCourse && (baseCourse.isCustom || (typeof baseCourse.id === 'string' && baseCourse.id.startsWith('custom_'))));
+      if (baseCourse && isCustomCourse) {
+        const holeData = currentRound.holes.map(h => ({ number: h.number, par: h.par, yards: h.yards }));
+        const updatedTees = (baseCourse.tees || []).map(t =>
+          t.name === currentRound.tee ? { ...t, holes: holeData } : t
+        );
+        handleSaveCustomCourse({ ...baseCourse, tees: updatedTees, isCustom: true });
+      }
+    }
     // Mark live round complete when saving
     if (isLiveRef.current && liveIdRef.current && db) {
       setIsLive(false);
