@@ -2666,57 +2666,102 @@ function App() {
 
   // ── One-time backfill: populate blank tees from prior rounds ───────
   // Earlier versions did not write a round's entered par/yards back to
-  // the saved course, so manually-created courses kept their blank
-  // placeholders. This migration walks each custom course's tees and,
-  // for every hole that still has blank data, copies par/yards from the
-  // most recent round played on that course+tee (or, as a last resort,
-  // any round on that course).
+  // the saved course. This migration walks every saved round and, for
+  // each (course, tee) pair, fills in any blank holes on the matching
+  // custom course from the round's hole data. If the round references
+  // a custom course that no longer exists in storage, the course is
+  // recreated from the round. Built-in courses (numeric ids) are left
+  // alone.
   React.useEffect(() => {
-    if (localStorage.getItem('golf_courses_holes_backfilled_v2')) return;
-    if (!customCourses.length || !rounds.length) return;
+    if (localStorage.getItem('golf_courses_holes_backfilled_v3')) return;
+    if (!rounds.length) return;
 
     const roundsByDate = [...rounds].sort((a, b) => new Date(b.date) - new Date(a.date));
     const normalize = (s) => (s || '').toString().trim().toLowerCase();
-    const holeHasData = (h) => (h.yards > 0) || (h.par && h.par !== 4);
-    const updates = [];
+    const holeHasData = (h) => h && ((h.yards > 0) || (h.par && h.par !== 4));
+    const isCustomId = (id) => typeof id === 'string' && id.startsWith('custom_');
+    const isBuiltInId = (id) => COURSES.some(c => String(c.id) === String(id));
 
-    customCourses.forEach(course => {
-      const isCustom = course.isCustom || (typeof course.id === 'string' && course.id.startsWith('custom_'));
-      if (!isCustom || !course.tees?.length) return;
+    // Index existing custom courses by id and by normalized name for lookup.
+    const byId = new Map(customCourses.map(c => [c.id, c]));
+    const byName = new Map(customCourses.map(c => [normalize(c.name), c]));
+    const workingCourses = new Map();
+    const log = [];
 
-      const courseRounds = roundsByDate.filter(r => r.courseId === course.id);
-      if (!courseRounds.length) return;
+    for (const round of roundsByDate) {
+      if (!round.holes?.length) continue;
+      if (!round.holes.some(holeHasData)) continue;
+      if (isBuiltInId(round.courseId)) continue;
 
-      let changed = false;
-      const updatedTees = course.tees.map(tee => {
-        const teeKey = normalize(tee.name);
-        const matchingRounds = courseRounds.filter(r => normalize(r.tee) === teeKey);
-        const candidates = matchingRounds.length ? matchingRounds : courseRounds;
+      // Resolve the course this round belongs to: prefer in-flight working
+      // copy, then existing customCourses (by id, then by name), then build
+      // a fresh course from the round itself.
+      const nameKey = normalize(round.courseName);
+      let course =
+        workingCourses.get(round.courseId) ||
+        byId.get(round.courseId) ||
+        (nameKey && byName.get(nameKey));
 
-        const newHoles = (tee.holes || []).map(h => {
-          if (holeHasData(h)) return h;
-          for (const r of candidates) {
-            const source = r.holes?.find(rh => rh.number === h.number);
-            if (source && holeHasData(source)) {
-              changed = true;
-              return { ...h, par: source.par, yards: source.yards };
-            }
-          }
-          return h;
-        });
-
-        return { ...tee, holes: newHoles };
-      });
-
-      if (changed) {
-        console.log(`[course-backfill] Updating ${course.name} from prior rounds`);
-        updates.push({ ...course, tees: updatedTees, isCustom: true });
+      if (course) {
+        course = workingCourses.get(course.id) || { ...course, tees: (course.tees || []).map(t => ({ ...t, holes: [...(t.holes || [])] })) };
+      } else {
+        const newId = (isCustomId(round.courseId) && round.courseId) ||
+          ('custom_recovered_' + (nameKey || 'course').replace(/[^a-z0-9]+/g, '_') + '_' + Date.now().toString(36));
+        course = { id: newId, name: round.courseName || 'Recovered Course', location: '', tees: [], isCustom: true };
+        log.push(`recovered ${course.name}`);
       }
-    });
 
-    localStorage.setItem('golf_courses_holes_backfilled_v2', 'true');
-    if (updates.length) console.log(`[course-backfill] Saving ${updates.length} course(s)`);
+      // Find or create the matching tee on the course (case-insensitive).
+      const teeKey = normalize(round.tee);
+      let teeIdx = (course.tees || []).findIndex(t => normalize(t.name) === teeKey);
+      if (teeIdx < 0) {
+        course.tees = [...(course.tees || []), { name: round.tee || 'Manual', color: 'white', holes: [] }];
+        teeIdx = course.tees.length - 1;
+      }
+      const tee = course.tees[teeIdx];
+      const teeHoles = [...(tee.holes || [])];
+
+      // Backfill any blank tee hole from the round's matching hole.
+      let teeChanged = false;
+      for (const src of round.holes) {
+        if (!holeHasData(src)) continue;
+        const existingIdx = teeHoles.findIndex(h => h.number === src.number);
+        if (existingIdx >= 0) {
+          if (!holeHasData(teeHoles[existingIdx])) {
+            teeHoles[existingIdx] = { number: src.number, par: src.par, yards: src.yards };
+            teeChanged = true;
+          }
+        } else {
+          teeHoles.push({ number: src.number, par: src.par, yards: src.yards });
+          teeChanged = true;
+        }
+      }
+      if (teeChanged) {
+        teeHoles.sort((a, b) => a.number - b.number);
+        course.tees[teeIdx] = { ...tee, holes: teeHoles };
+        log.push(`${course.name} / ${tee.name}`);
+      }
+
+      workingCourses.set(course.id, course);
+    }
+
+    // Compare against the original snapshot to decide which to persist.
+    const updates = [];
+    for (const course of workingCourses.values()) {
+      const original = byId.get(course.id);
+      if (!original || JSON.stringify(original) !== JSON.stringify(course)) {
+        updates.push(course);
+      }
+    }
+
+    if (updates.length) {
+      console.log('[course-backfill]', log);
+      console.log(`[course-backfill] Saving ${updates.length} course(s):`, updates.map(c => c.name));
+    } else {
+      console.log('[course-backfill] No updates needed');
+    }
     updates.forEach(handleSaveCustomCourse);
+    localStorage.setItem('golf_courses_holes_backfilled_v3', 'true');
   }, [customCourses, rounds, handleSaveCustomCourse]);
 
   const handleDeleteCustomCourse = useCallback(async (courseId) => {
