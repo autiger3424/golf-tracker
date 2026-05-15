@@ -875,122 +875,193 @@ function CodeCopyBox({ code }) {
 // ============================================================
 // OPPONENTS PANEL — track opponent names + scores per hole
 // ============================================================
-function OpponentsPanel({ opponents, holes, onAdd, onRemove, onUpdate, onUpdateScore }) {
+function OpponentsPanel({ playerName, opponents, holes, onAdd, onRemove, onUpdate, onUpdateScore }) {
   const [open, setOpen] = React.useState(opponents.length > 0);
 
   React.useEffect(() => {
     if (opponents.length > 0) setOpen(true);
   }, [opponents.length]);
 
-  const totalScore = (opp) => (opp.scores || []).reduce((s, v) => s + (v !== '' && v !== null && v !== undefined ? parseInt(v) || 0 : 0), 0);
-  const playedHoles = (opp) => (opp.scores || []).filter(v => v !== '' && v !== null && v !== undefined).length;
-  const totalParPlayed = (opp) => (opp.scores || [])
-    .map((v, i) => (v !== '' && v !== null && v !== undefined ? holes[i]?.par || 0 : 0))
-    .reduce((a, b) => a + b, 0);
+  const hasScore = (v) => v !== '' && v !== null && v !== undefined;
+  const toInt = (v) => (hasScore(v) ? parseInt(v) || 0 : 0);
+  const sumRange = (scores, start, end) => scores.slice(start, end).reduce((s, v) => s + toInt(v), 0);
+  const countRange = (scores, start, end) => scores.slice(start, end).filter(hasScore).length;
+  const scoreColor = (v, par) => {
+    if (!hasScore(v) || !par) return 'var(--text)';
+    const d = parseInt(v) - par;
+    if (d < 0) return 'var(--red)';
+    if (d > 0) return 'var(--blue)';
+    return 'var(--accent)';
+  };
+
+  const front = holes.slice(0, 9);
+  const back = holes.slice(9, 18);
+  const parOut = front.reduce((s, h) => s + (h.par || 0), 0);
+  const parIn = back.reduce((s, h) => s + (h.par || 0), 0);
+
+  const players = [
+    { id: '__you', name: playerName || 'You', isYou: true, scores: holes.map(h => h.score) },
+    ...opponents.map(o => ({ id: o.id, name: o.name || '', isYou: false, scores: o.scores || Array(holes.length).fill('') })),
+  ];
+
+  const gridCols = (n) => `70px repeat(${n}, minmax(0, 1fr)) 36px`;
+  const cellBase = { display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 28, fontSize: 12, fontWeight: 700, borderRadius: 4 };
+  const headerCell = { ...cellBase, fontSize: 10, fontWeight: 800, color: 'var(--text-muted)', letterSpacing: 0.3, background: 'transparent', minHeight: 18 };
+  const parCell = { ...cellBase, background: 'var(--card2)', color: 'var(--text-dim)' };
+  const totalCell = { ...cellBase, background: 'var(--card2)', color: 'var(--blue)', fontWeight: 800 };
+  const nameCell = { ...cellBase, justifyContent: 'flex-start', paddingLeft: 6, gap: 4, overflow: 'hidden' };
+
+  function renderNine(sectionLabel, totalLabel, sectionHoles, parTotal, startIdx) {
+    const n = sectionHoles.length;
+    if (n === 0) return null;
+    const cols = gridCols(n);
+    return (
+      <div style={{ marginBottom: 12 }}>
+        {/* Hole number header */}
+        <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 2, marginBottom: 2 }}>
+          <div style={{ ...headerCell, justifyContent: 'flex-start', paddingLeft: 6 }}>{sectionLabel}</div>
+          {sectionHoles.map(h => <div key={h.number} style={headerCell}>{h.number}</div>)}
+          <div style={headerCell}>{totalLabel}</div>
+        </div>
+        {/* Par row */}
+        <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 2, marginBottom: 2 }}>
+          <div style={{ ...parCell, justifyContent: 'flex-start', paddingLeft: 6, fontSize: 10 }}>PAR</div>
+          {sectionHoles.map(h => <div key={h.number} style={parCell}>{h.par || '–'}</div>)}
+          <div style={totalCell}>{parTotal || '–'}</div>
+        </div>
+        {/* Player rows */}
+        {players.map(p => {
+          const tot = sumRange(p.scores, startIdx, startIdx + n);
+          const played = countRange(p.scores, startIdx, startIdx + n);
+          const parPlayedSec = p.scores.slice(startIdx, startIdx + n).reduce((s, v, idx) => s + (hasScore(v) ? (sectionHoles[idx]?.par || 0) : 0), 0);
+          const diff = played > 0 ? tot - parPlayedSec : null;
+          const diffColor = diff === null ? 'var(--text-dim)' : diff < 0 ? 'var(--red)' : diff > 0 ? 'var(--blue)' : 'var(--accent)';
+          return (
+            <div key={p.id} style={{ display: 'grid', gridTemplateColumns: cols, gap: 2, marginBottom: 2 }}>
+              <div style={nameCell}>
+                <span style={{
+                  fontSize: 11, fontWeight: p.isYou ? 800 : 700,
+                  color: p.isYou ? 'var(--blue)' : 'var(--text)',
+                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                  maxWidth: '100%',
+                }}>
+                  {p.isYou ? p.name : (p.name || 'Opponent')}
+                </span>
+              </div>
+              {sectionHoles.map((h, j) => {
+                const i = startIdx + j;
+                const v = p.scores[i] ?? '';
+                const color = scoreColor(v, h.par);
+                if (p.isYou) {
+                  return (
+                    <div key={h.number} style={{ ...cellBase, background: 'var(--bg)', border: '1px solid var(--border)', color }}>
+                      {hasScore(v) ? v : '–'}
+                    </div>
+                  );
+                }
+                return (
+                  <input
+                    key={h.number}
+                    type="number" inputMode="numeric" min={1} max={20}
+                    value={v}
+                    onChange={e => onUpdateScore(p.id, i, e.target.value)}
+                    placeholder=""
+                    style={{
+                      ...cellBase, color, textAlign: 'center',
+                      background: 'var(--bg)', border: '1px solid var(--border)',
+                      padding: 0, MozAppearance: 'textfield', width: '100%',
+                    }}
+                  />
+                );
+              })}
+              <div style={{ ...totalCell, color: diffColor }}>
+                {played > 0 ? tot : '–'}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
 
   return (
     <div className={'collapsible-card' + (open ? ' open' : '')} style={{ marginBottom: 10 }}>
       <button className="collapsible-header" onClick={() => setOpen(o => !o)}>
-        <span>Opponents{opponents.length > 0 ? ` (${opponents.length})` : ''}</span>
+        <span>Scorecard{opponents.length > 0 ? ` · ${opponents.length} opponent${opponents.length === 1 ? '' : 's'}` : ''}</span>
         <span className="collapsible-chevron">{open ? '▴' : '▾'}</span>
       </button>
       {open && (
         <div className="collapsible-body">
           {opponents.length === 0 && (
-            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>
-              Track an opponent's name and score per hole. No fairways, putts, or other stats — just score.
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
+              Add opponents to track their score alongside yours, hole by hole.
             </div>
           )}
-          {opponents.map((opp) => {
-            const total = totalScore(opp);
-            const played = playedHoles(opp);
-            const parPlayed = totalParPlayed(opp);
-            const diff = played > 0 ? total - parPlayed : null;
-            return (
-              <div key={opp.id} style={{
-                background: 'var(--card)', border: '1px solid var(--border)',
-                borderRadius: 10, padding: 12, marginBottom: 10,
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+          {opponents.length > 0 && (
+            <div style={{ marginBottom: 14 }}>
+              {opponents.map(o => (
+                <div key={o.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
                   <input
-                    type="text"
-                    value={opp.name}
-                    onChange={(e) => onUpdate(opp.id, { name: e.target.value })}
-                    placeholder="Name"
-                    maxLength={40}
+                    type="text" value={o.name || ''} placeholder="Opponent name" maxLength={30}
+                    onChange={e => onUpdate(o.id, { name: e.target.value })}
                     style={{
-                      flex: '1 1 0', minWidth: 0, width: 0,
-                      fontSize: '0.9rem', fontWeight: 600,
-                      padding: '6px 8px', borderRadius: 8,
+                      flex: 1, minWidth: 0,
+                      fontSize: 14, fontWeight: 600,
+                      padding: '8px 10px', borderRadius: 8,
                       border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)',
                     }}
                   />
-                  <div style={{ textAlign: 'right', flex: '0 0 auto' }}>
-                    <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--blue)', lineHeight: 1.1 }}>
-                      {played > 0 ? total : '—'}
-                    </div>
-                    {diff !== null && (
-                      <div style={{ fontSize: '0.7rem', fontWeight: 700, lineHeight: 1.1,
-                        color: diff < 0 ? 'var(--red)' : diff > 0 ? 'var(--blue)' : 'var(--text-dim)' }}>
-                        {scoreDiffLabel(diff)} · {played}
-                      </div>
-                    )}
-                  </div>
                   <button
-                    onClick={() => {
-                      if (window.confirm(`Remove ${opp.name || 'this opponent'} from the round?`)) onRemove(opp.id);
-                    }}
+                    onClick={() => { if (window.confirm(`Remove ${o.name || 'this opponent'} from the round?`)) onRemove(o.id); }}
                     title="Remove opponent"
                     style={{
-                      flex: '0 0 auto',
+                      flex: '0 0 auto', width: 32, height: 32, padding: 0,
                       background: 'transparent', border: '1px solid var(--red)',
-                      color: 'var(--red)', borderRadius: 8, padding: '5px 8px',
-                      fontSize: 10, fontWeight: 700, cursor: 'pointer', letterSpacing: 0.3,
+                      color: 'var(--red)', borderRadius: 8,
+                      fontSize: 18, fontWeight: 700, cursor: 'pointer', lineHeight: 1,
                     }}
-                  >REMOVE</button>
+                  >×</button>
                 </div>
-
-                {/* 18 hole score grid (3 rows × 6 cols) */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 4 }}>
-                  {holes.map((hole, i) => {
-                    const v = opp.scores?.[i] ?? '';
-                    const score = v !== '' ? parseInt(v) : null;
-                    const d = score !== null ? score - hole.par : null;
-                    const color = d === null ? 'var(--text)'
-                      : d < 0 ? 'var(--red)'
-                      : d > 0 ? 'var(--blue)'
-                      : 'var(--accent)';
-                    return (
-                      <div key={hole.number} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-                        <div style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 700 }}>
-                          {hole.number} · P{hole.par}
-                        </div>
-                        <input
-                          type="number"
-                          inputMode="numeric"
-                          min={1}
-                          max={20}
-                          value={v}
-                          onChange={(e) => onUpdateScore(opp.id, i, e.target.value)}
-                          placeholder="—"
-                          style={{
-                            width: '100%', textAlign: 'center', fontSize: 14, fontWeight: 700,
-                            padding: '6px 0', borderRadius: 6,
-                            border: '1px solid var(--border)', background: 'var(--bg)',
-                            color, MozAppearance: 'textfield',
-                          }}
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
+              ))}
+            </div>
+          )}
+          {renderNine('FRONT', 'OUT', front, parOut, 0)}
+          {renderNine('BACK', 'IN', back, parIn, 9)}
+          {/* Totals row */}
+          <div style={{ display: 'grid', gridTemplateColumns: gridCols(1), gap: 2, marginTop: 4, paddingTop: 6, borderTop: '1px solid var(--border)' }}>
+            <div style={{ ...headerCell, justifyContent: 'flex-start', paddingLeft: 4 }}>TOTAL</div>
+            <div style={headerCell}></div>
+            <div style={headerCell}>TOT</div>
+            <div style={{ ...parCell, justifyContent: 'flex-start', paddingLeft: 4, fontSize: 10 }}>PAR</div>
+            <div style={parCell}></div>
+            <div style={totalCell}>{(parOut + parIn) || '–'}</div>
+            {players.map(p => {
+              const tot = sumRange(p.scores, 0, holes.length);
+              const played = countRange(p.scores, 0, holes.length);
+              const parPlayed = p.scores.reduce((s, v, i) => s + (hasScore(v) ? (holes[i]?.par || 0) : 0), 0);
+              const diff = played > 0 ? tot - parPlayed : null;
+              const diffColor = diff === null ? 'var(--text-dim)' : diff < 0 ? 'var(--red)' : diff > 0 ? 'var(--blue)' : 'var(--accent)';
+              return (
+                <React.Fragment key={p.id}>
+                  <div style={{ ...nameCell, gridColumn: '1 / span 2' }}>
+                    <span style={{ fontSize: 11, fontWeight: 800, color: p.isYou ? 'var(--blue)' : 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {p.isYou ? p.name : (p.name || '—')}
+                    </span>
+                    {played > 0 && (
+                      <span style={{ fontSize: 10, fontWeight: 700, color: diffColor, marginLeft: 4 }}>
+                        {scoreDiffLabel(diff)}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ ...totalCell, color: diffColor }}>{played > 0 ? tot : '–'}</div>
+                </React.Fragment>
+              );
+            })}
+          </div>
           <button
             onClick={onAdd}
             className="btn btn-secondary"
-            style={{ width: '100%', fontWeight: 700 }}
+            style={{ width: '100%', fontWeight: 700, marginTop: 10 }}
           >
             + Add Opponent
           </button>
@@ -1150,6 +1221,7 @@ function RoundScreen({ round, onUpdateHole, onAddOpponent, onRemoveOpponent, onU
 
       <div className="screen" style={{ paddingTop: 12 }}>
         <OpponentsPanel
+          playerName={round.playerName}
           opponents={round.opponents || []}
           holes={round.holes}
           onAdd={onAddOpponent}
