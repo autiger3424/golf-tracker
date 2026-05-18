@@ -1887,6 +1887,10 @@ function RecapPlayer({ items, onClose }) {
 function AnalysisScreen({ round, onSave, onNewRound, saved, onBack }) {
   const stats = calcStats(round.holes);
 
+  React.useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [round.id]);
+
   if (!stats) {
     return (
       <div className="screen">
