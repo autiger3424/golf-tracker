@@ -819,6 +819,8 @@ function LiveScoreboard({ data, flashHole }) {
 function LiveNineTable({ rows, holes, sliceStart, totalLabel, showGrandTotal, currentHole, isComplete, flashHole }) {
   const nineHoles = holes.slice(sliceStart, sliceStart + 9);
   const sumPar = (slice) => slice.reduce((s, h) => s + Number(h.par || 0), 0);
+  const sumYds = (slice) => slice.reduce((s, h) => s + Number(h.yards || 0), 0);
+  const hasYards = holes.some(h => h.yards);
   const sumScores = (scores, slice, offset) => {
     let total = 0, played = 0;
     for (let i = 0; i < slice.length; i++) {
@@ -843,6 +845,8 @@ function LiveNineTable({ rows, holes, sliceStart, totalLabel, showGrandTotal, cu
   };
   const ninePar = sumPar(nineHoles);
   const grandPar = showGrandTotal ? sumPar(holes) : null;
+  const nineYds = sumYds(nineHoles);
+  const grandYds = showGrandTotal ? sumYds(holes) : null;
 
   return (
     <div style={{ overflowX: 'auto', borderRadius: 10, border: '1px solid var(--border)', marginBottom: 10 }}>
@@ -861,6 +865,18 @@ function LiveNineTable({ rows, holes, sliceStart, totalLabel, showGrandTotal, cu
             <th style={{ ...thStyle, color: 'var(--blue)', fontWeight: 800 }}>{totalLabel}</th>
             {showGrandTotal && <th style={{ ...thStyle, color: 'var(--blue)', fontWeight: 800 }}>TOT</th>}
           </tr>
+          {hasYards && (
+            <tr style={{ background: 'var(--card2)' }}>
+              <td style={{ ...tdStyle, textAlign: 'left', paddingLeft: 8, color: 'var(--blue)', fontWeight: 600, fontSize: 11, position: 'sticky', left: 0, background: 'var(--card2)' }}>
+                Yards
+              </td>
+              {nineHoles.map(h => (
+                <td key={h.number} style={{ ...tdStyle, color: 'var(--blue)', fontSize: 11 }}>{h.yards || '—'}</td>
+              ))}
+              <td style={{ ...tdStyle, color: 'var(--blue)', fontWeight: 700, fontSize: 11 }}>{nineYds || '—'}</td>
+              {showGrandTotal && <td style={{ ...tdStyle, color: 'var(--blue)', fontWeight: 700, fontSize: 11 }}>{grandYds || '—'}</td>}
+            </tr>
+          )}
           <tr style={{ background: 'var(--card2)' }}>
             <td style={{ ...tdStyle, textAlign: 'left', paddingLeft: 8, color: 'var(--blue)', fontWeight: 600, fontSize: 11, position: 'sticky', left: 0, background: 'var(--card2)' }}>
               Par
