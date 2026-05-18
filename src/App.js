@@ -1544,8 +1544,8 @@ function RoundRecap({ holes }) {
 // Returns a Blob (video/mp4 on iOS Safari, video/webm elsewhere).
 const MONTAGE_W = 720;
 const MONTAGE_H = 1280;
-const PHOTO_MS = 1600;
-const VIDEO_MAX_MS = 2500;
+const PHOTO_MS = 2000;
+const VIDEO_MAX_MS = 8000;
 
 async function recordMontage(items, onProgress) {
   if (typeof MediaRecorder === 'undefined') {
@@ -1718,8 +1718,8 @@ function RecapPlayer({ items, onClose }) {
   const videoRef = React.useRef(null);
   const timerRef = React.useRef(null);
 
-  const PHOTO_DURATION = 1600;
-  const VIDEO_MAX_DURATION = 2500;
+  const PHOTO_DURATION = 2000;
+  const VIDEO_MAX_DURATION = 8000;
 
   const advance = React.useCallback(() => {
     if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
