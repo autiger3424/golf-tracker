@@ -1457,6 +1457,168 @@ function HoleNotesSection({ holes }) {
 // ============================================================
 // ANALYSIS SCREEN
 // ============================================================
+// ============================================================
+// ROUND RECAP — auto-plays each hole's photos/videos in sequence
+// ============================================================
+function RoundRecap({ holes }) {
+  const [playing, setPlaying] = React.useState(false);
+  const items = React.useMemo(() => (holes || []).flatMap(h =>
+    (h.media || []).map(m => ({
+      ...m,
+      hole: h.number,
+      par: h.par,
+      score: h.score,
+    }))
+  ), [holes]);
+
+  if (items.length === 0) return null;
+
+  const videoCount = items.filter(i => i.type === 'video').length;
+  const imageCount = items.length - videoCount;
+  const parts = [];
+  if (videoCount) parts.push(`${videoCount} video${videoCount === 1 ? '' : 's'}`);
+  if (imageCount) parts.push(`${imageCount} photo${imageCount === 1 ? '' : 's'}`);
+
+  return (
+    <div className="card" style={{ marginTop: 12 }}>
+      <div className="card-title">Round Recap</div>
+      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
+        {parts.join(' + ')} from {items.length === 1 ? '1 hole' : `${new Set(items.map(i => i.hole)).size} holes`}
+      </div>
+      <button
+        onClick={() => setPlaying(true)}
+        className="btn btn-primary"
+        style={{ width: '100%' }}
+      >
+        ▶ Play Recap
+      </button>
+      {playing && <RecapPlayer items={items} onClose={() => setPlaying(false)} />}
+    </div>
+  );
+}
+
+function RecapPlayer({ items, onClose }) {
+  const [idx, setIdx] = React.useState(0);
+  const videoRef = React.useRef(null);
+  const timerRef = React.useRef(null);
+
+  const PHOTO_DURATION = 1600;
+  const VIDEO_MAX_DURATION = 2500;
+
+  const advance = React.useCallback(() => {
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
+    setIdx(i => {
+      if (i + 1 >= items.length) { onClose(); return i; }
+      return i + 1;
+    });
+  }, [items.length, onClose]);
+
+  React.useEffect(() => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    const cur = items[idx];
+    if (!cur) return;
+    if (cur.type === 'image') {
+      timerRef.current = setTimeout(advance, PHOTO_DURATION);
+    } else {
+      timerRef.current = setTimeout(advance, VIDEO_MAX_DURATION);
+      if (videoRef.current) {
+        videoRef.current.currentTime = 0;
+        videoRef.current.play().catch(() => {});
+      }
+    }
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+  }, [idx, advance, items]);
+
+  React.useEffect(() => {
+    const handler = (e) => {
+      if (e.key === 'Escape') onClose();
+      else if (e.key === 'ArrowRight') advance();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose, advance]);
+
+  const cur = items[idx];
+  if (!cur) return null;
+
+  const hasScore = cur.score !== '' && cur.score !== null && cur.score !== undefined;
+  const diff = hasScore && cur.par ? parseInt(cur.score) - cur.par : null;
+  const diffLabel = diff === null ? null : diff === 0 ? 'E' : (diff > 0 ? '+' + diff : String(diff));
+  const diffColor = diff === null ? 'rgba(255,255,255,0.85)'
+    : diff < 0 ? '#ff8a8a' : diff > 0 ? '#9fb6e8' : '#9be6b0';
+
+  return (
+    <div
+      onClick={advance}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 1000,
+        background: 'rgba(0,0,0,0.96)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}
+    >
+      {cur.type === 'video' ? (
+        <video
+          key={cur.id}
+          ref={videoRef}
+          src={cur.url}
+          autoPlay muted playsInline
+          style={{ maxWidth: '100%', maxHeight: '100%' }}
+          onEnded={advance}
+          onClick={e => e.stopPropagation()}
+        />
+      ) : (
+        <img
+          key={cur.id}
+          src={cur.url}
+          alt=""
+          style={{ maxWidth: '100%', maxHeight: '100%' }}
+        />
+      )}
+
+      {/* Hole + score overlay */}
+      <div style={{
+        position: 'absolute', top: 20, left: 20,
+        background: 'rgba(0,0,0,0.6)', color: 'white',
+        padding: '10px 16px', borderRadius: 24,
+        fontWeight: 800, fontSize: 13, letterSpacing: 0.6,
+        display: 'flex', alignItems: 'center', gap: 10,
+      }}>
+        <span>HOLE {cur.hole}</span>
+        {cur.par && <span style={{ opacity: 0.7 }}>PAR {cur.par}</span>}
+        {hasScore && (
+          <span style={{ color: diffColor }}>
+            {cur.score}{diffLabel && ` (${diffLabel})`}
+          </span>
+        )}
+      </div>
+
+      {/* Progress dots */}
+      <div style={{
+        position: 'absolute', bottom: 24, left: 16, right: 16,
+        display: 'flex', justifyContent: 'center', gap: 4,
+      }}>
+        {items.map((_, i) => (
+          <div key={i} style={{
+            flex: 1, maxWidth: 28, height: 3, borderRadius: 2,
+            background: i < idx ? 'white' : i === idx ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.3)',
+            transition: 'background 0.2s',
+          }} />
+        ))}
+      </div>
+
+      <button onClick={e => { e.stopPropagation(); onClose(); }}
+        style={{
+          position: 'absolute', top: 16, right: 16,
+          width: 36, height: 36, padding: 0, lineHeight: 1,
+          background: 'rgba(0,0,0,0.6)', color: 'white',
+          border: 'none', borderRadius: '50%',
+          fontSize: 22, cursor: 'pointer',
+        }}>×</button>
+    </div>
+  );
+}
+
+// ============================================================
 function AnalysisScreen({ round, onSave, onNewRound, saved, onBack }) {
   const stats = calcStats(round.holes);
 
@@ -1512,6 +1674,8 @@ function AnalysisScreen({ round, onSave, onNewRound, saved, onBack }) {
           {holesPlayed} holes · {round.roundType === 'competition' ? 'Competition' : 'Practice'} · {formatDate(round.date)}
         </div>
       </div>
+
+      <RoundRecap holes={round.holes} />
 
       <div className="stats-grid">
         <div className="stat-box">
