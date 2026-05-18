@@ -1786,50 +1786,60 @@ function RecapPlayer({ items, onClose }) {
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}
     >
-      {cur.type === 'video' ? (
-        <video
-          key={cur.id}
-          ref={videoRef}
-          src={cur.url}
-          autoPlay muted playsInline
-          style={{ maxWidth: '100%', maxHeight: '100%' }}
-          onLoadedMetadata={e => {
-            const v = e.currentTarget;
-            if (v.duration > VIDEO_TRIM_MIN_LEN_S) v.currentTime = VIDEO_TRIM_FRONT_S;
-            v.play().catch(() => {});
-          }}
-          onEnded={advance}
-          onClick={e => e.stopPropagation()}
-        />
-      ) : (
-        <img
-          key={cur.id}
-          src={cur.url}
-          alt=""
-          style={{ maxWidth: '100%', maxHeight: '100%' }}
-        />
-      )}
-
-      {/* Hole + score overlay */}
+      {/* Sized to the rendered video/image bounds so the overlay sits on top of it,
+          not in the surrounding letterbox. */}
       <div style={{
-        position: 'absolute', top: 24, left: 20,
-        color: 'white',
-        textShadow: '0 2px 8px rgba(0,0,0,0.85), 0 0 4px rgba(0,0,0,0.7)',
-        fontWeight: 900, letterSpacing: 1,
-        display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4,
-        lineHeight: 1,
+        position: 'relative',
+        display: 'inline-flex',
+        maxWidth: '100%', maxHeight: '100%',
+        lineHeight: 0,
       }}>
-        <span style={{ fontSize: 32 }}>HOLE {cur.hole}</span>
-        {(cur.par || hasScore) && (
-          <span style={{ fontSize: 22, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 10 }}>
-            {cur.par && <span style={{ opacity: 0.85 }}>PAR {cur.par}</span>}
-            {hasScore && (
-              <span style={{ color: diffColor }}>
-                {cur.score}{diffLabel && ` (${diffLabel})`}
-              </span>
-            )}
-          </span>
+        {cur.type === 'video' ? (
+          <video
+            key={cur.id}
+            ref={videoRef}
+            src={cur.url}
+            autoPlay muted playsInline
+            style={{ maxWidth: '100%', maxHeight: '100%', display: 'block' }}
+            onLoadedMetadata={e => {
+              const v = e.currentTarget;
+              if (v.duration > VIDEO_TRIM_MIN_LEN_S) v.currentTime = VIDEO_TRIM_FRONT_S;
+              v.play().catch(() => {});
+            }}
+            onEnded={advance}
+            onClick={e => e.stopPropagation()}
+          />
+        ) : (
+          <img
+            key={cur.id}
+            src={cur.url}
+            alt=""
+            style={{ maxWidth: '100%', maxHeight: '100%', display: 'block' }}
+          />
         )}
+
+        {/* Hole + score overlay — anchored to the video bounds */}
+        <div style={{
+          position: 'absolute', top: 16, left: 16,
+          color: 'white',
+          textShadow: '0 2px 8px rgba(0,0,0,0.9), 0 0 4px rgba(0,0,0,0.75)',
+          fontWeight: 900, letterSpacing: 1,
+          display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4,
+          lineHeight: 1,
+          pointerEvents: 'none',
+        }}>
+          <span style={{ fontSize: 32 }}>HOLE {cur.hole}</span>
+          {(cur.par || hasScore) && (
+            <span style={{ fontSize: 22, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 10 }}>
+              {cur.par && <span style={{ opacity: 0.85 }}>PAR {cur.par}</span>}
+              {hasScore && (
+                <span style={{ color: diffColor }}>
+                  {cur.score}{diffLabel && ` (${diffLabel})`}
+                </span>
+              )}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Progress dots */}
