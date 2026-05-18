@@ -1675,7 +1675,7 @@ function drawOverlay(ctx, item) {
   const diff = hasScore && item.par ? parseInt(item.score) - item.par : null;
   const diffLabel = diff === null ? '' : diff === 0 ? ' (E)' : diff > 0 ? ` (+${diff})` : ` (${diff})`;
 
-  const x = 56, yTop = 110;
+  const x = 56, yTop = 50;
   const courseSize = 34;
   const titleSize = 72;
   const subSize = 48;
@@ -1830,7 +1830,7 @@ function RecapPlayer({ items, onClose }) {
 
         {/* Hole + score overlay — anchored to the video bounds */}
         <div style={{
-          position: 'absolute', top: 48, left: 28,
+          position: 'absolute', top: 20, left: 28,
           color: 'white',
           textShadow: '0 2px 8px rgba(0,0,0,0.9), 0 0 4px rgba(0,0,0,0.75)',
           fontWeight: 900, letterSpacing: 1,
