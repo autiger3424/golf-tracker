@@ -24,6 +24,78 @@ function getScoreColor(diff) {
   return SCORE_COLORS.worse;
 }
 
+// Classic scorecard mark — circle for under par, square for over par.
+// Eagle/double-bogey get an extra outer ring.
+function ScoreBadge({ score, par, isCurrent, isFlash, size = 26 }) {
+  const hasScore = score !== '' && score !== null && score !== undefined;
+  const flashBg = isFlash ? 'rgba(45,106,79,0.35)' : 'transparent';
+  const wrapper = {
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    width: size, height: size, fontWeight: 800, fontSize: Math.floor(size * 0.5),
+    background: flashBg, borderRadius: 4, transition: 'background 0.6s ease',
+  };
+  if (!hasScore) {
+    return (
+      <span style={{ ...wrapper, color: isCurrent ? 'var(--accent)' : 'var(--blue)', opacity: 0.45 }}>
+        {isCurrent ? '•' : '–'}
+      </span>
+    );
+  }
+  const diff = Number(score) - Number(par || 0);
+  const RED = '#c81f1f';
+  const BLUE = '#1e3a8a';
+  const inner = Math.floor(size * 0.82);
+
+  if (diff === 0) {
+    return <span style={{ ...wrapper, color: 'var(--text)', fontWeight: 700 }}>{score}</span>;
+  }
+  if (diff === -1) {
+    return (
+      <span style={wrapper}>
+        <span style={{
+          width: inner, height: inner, borderRadius: '50%',
+          background: RED, color: 'white',
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        }}>{score}</span>
+      </span>
+    );
+  }
+  if (diff <= -2) {
+    return (
+      <span style={wrapper}>
+        <span style={{
+          width: inner, height: inner, borderRadius: '50%',
+          background: RED, color: 'white',
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          boxShadow: `0 0 0 2px white, 0 0 0 3.5px ${RED}`,
+        }}>{score}</span>
+      </span>
+    );
+  }
+  if (diff === 1) {
+    return (
+      <span style={wrapper}>
+        <span style={{
+          width: inner, height: inner,
+          background: BLUE, color: 'white',
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        }}>{score}</span>
+      </span>
+    );
+  }
+  // Double bogey or worse
+  return (
+    <span style={wrapper}>
+      <span style={{
+        width: inner, height: inner,
+        background: BLUE, color: 'white',
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        boxShadow: `0 0 0 2px white, 0 0 0 3.5px ${BLUE}`,
+      }}>{score}</span>
+    </span>
+  );
+}
+
 function getScoreLabel(diff) {
   if (diff === null || diff === undefined) return '';
   if (diff <= -3) return 'Albatross';
@@ -463,17 +535,8 @@ export default function LiveViewer({ liveId }) {
           </div>
         )}
 
-        {/* Scorecard */}
-        <Scorecard data={data} flashHole={flashHole} getScoreColor={getScoreColor} />
-
-        {/* Opponents leaderboard */}
-        <OpponentsLeaderboard
-          opponents={data.opponents}
-          holes={data.holes}
-          playerName={data.playerName}
-          playerStats={stats}
-          getScoreColor={getScoreColor}
-        />
+        {/* Combined scorecard — player + opponents in one view */}
+        <LiveScoreboard data={data} flashHole={flashHole} />
 
 
         {/* Highlights */}
@@ -586,10 +649,12 @@ export default function LiveViewer({ liveId }) {
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function OpponentsLeaderboard({ opponents, holes, playerName, playerStats, getScoreColor }) {
+function LiveScoreboard({ data, flashHole }) {
   const [expanded, setExpanded] = React.useState(true);
-
-  if (!opponents || opponents.length === 0) return null;
+  const holes = data.holes;
+  const opponents = data.opponents || [];
+  const playerName = data.playerName;
+  const hasOpponents = opponents.length > 0;
 
   // Build a unified leaderboard row per competitor (player + opponents)
   const buildRow = (name, scores) => {
@@ -606,8 +671,8 @@ function OpponentsLeaderboard({ opponents, holes, playerName, playerStats, getSc
   const playerRow = buildRow(playerName || 'You', holes.map(h => h.score));
   const oppRows = opponents.map(o => buildRow(o.name || 'Opponent', o.scores || []));
 
-  // Sort by score-to-par (lowest first), unplayed last
-  const allRows = [{ ...playerRow, isPlayer: true }, ...oppRows.map(r => ({ ...r, isPlayer: false }))]
+  // Sort standings by score-to-par (lowest first), unplayed last
+  const standingsRows = [{ ...playerRow, isPlayer: true }, ...oppRows.map(r => ({ ...r, isPlayer: false }))]
     .sort((a, b) => {
       if (a.played === 0 && b.played === 0) return 0;
       if (a.played === 0) return 1;
@@ -623,7 +688,7 @@ function OpponentsLeaderboard({ opponents, holes, playerName, playerStats, getSc
     <div style={{ marginTop: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
         <div style={{ fontWeight: 700, color: 'var(--text)', fontSize: 15 }}>
-          Leaderboard
+          Scorecard
         </div>
         <button
           onClick={() => setExpanded(e => !e)}
@@ -640,70 +705,76 @@ function OpponentsLeaderboard({ opponents, holes, playerName, playerStats, getSc
         </button>
       </div>
 
-      {/* Standings — always visible, so names + current scores stay in view when minimized */}
-      <div style={{ overflow: 'hidden', borderRadius: 10, border: '1px solid var(--border)', marginBottom: expanded ? 12 : 0 }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ background: 'var(--surface)' }}>
-              <th style={{ ...thStyle, textAlign: 'left', paddingLeft: 10, width: 32 }}>#</th>
-              <th style={{ ...thStyle, textAlign: 'left' }}>Player</th>
-              <th style={thStyle}>Thru</th>
-              <th style={thStyle}>To Par</th>
-              <th style={thStyle}>Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {allRows.map((row, i) => {
-              const diffColor = row.diff === null ? 'var(--blue)'
-                : row.diff < 0 ? '#991b1b'
-                : row.diff > 0 ? '#1e3a5f'
-                : '#2d6a4f';
-              return (
-                <tr key={i} style={{
-                  background: row.isPlayer ? 'rgba(45,106,79,0.08)' : 'transparent',
-                  borderBottom: '1px solid var(--border)',
-                }}>
-                  <td style={{ ...tdStyle, textAlign: 'left', paddingLeft: 10, fontWeight: 800, color: 'var(--blue)' }}>
-                    {i + 1}
-                  </td>
-                  <td style={{ ...tdStyle, textAlign: 'left', fontWeight: 700, color: 'var(--text)' }}>
-                    {row.name}{row.isPlayer && <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--accent)', fontWeight: 700, letterSpacing: 0.5 }}>YOU</span>}
-                  </td>
-                  <td style={{ ...tdStyle, color: 'var(--blue)', fontWeight: 700 }}>
-                    {row.played > 0 ? row.played : '—'}
-                  </td>
-                  <td style={{ ...tdStyle, color: diffColor, fontWeight: 800 }}>
-                    {row.diff === null ? '—' : row.diff === 0 ? 'E' : (row.diff > 0 ? '+' : '') + row.diff}
-                  </td>
-                  <td style={{ ...tdStyle, color: 'var(--text)', fontWeight: 800 }}>
-                    {row.played > 0 ? row.totalScore : '—'}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      {/* Standings — only when there are opponents to compare against */}
+      {hasOpponents && (
+        <div style={{ overflow: 'hidden', borderRadius: 10, border: '1px solid var(--border)', marginBottom: expanded ? 12 : 0 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ background: 'var(--surface)' }}>
+                <th style={{ ...thStyle, textAlign: 'left', paddingLeft: 10, width: 32 }}>#</th>
+                <th style={{ ...thStyle, textAlign: 'left' }}>Player</th>
+                <th style={thStyle}>Thru</th>
+                <th style={thStyle}>To Par</th>
+                <th style={thStyle}>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {standingsRows.map((row, i) => {
+                const diffColor = row.diff === null ? 'var(--blue)'
+                  : row.diff < 0 ? '#991b1b'
+                  : row.diff > 0 ? '#1e3a5f'
+                  : '#2d6a4f';
+                return (
+                  <tr key={i} style={{
+                    background: row.isPlayer ? 'rgba(45,106,79,0.08)' : 'transparent',
+                    borderBottom: '1px solid var(--border)',
+                  }}>
+                    <td style={{ ...tdStyle, textAlign: 'left', paddingLeft: 10, fontWeight: 800, color: 'var(--blue)' }}>
+                      {i + 1}
+                    </td>
+                    <td style={{ ...tdStyle, textAlign: 'left', fontWeight: 700, color: 'var(--text)' }}>
+                      {row.name}{row.isPlayer && <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--accent)', fontWeight: 700, letterSpacing: 0.5 }}>YOU</span>}
+                    </td>
+                    <td style={{ ...tdStyle, color: 'var(--blue)', fontWeight: 700 }}>
+                      {row.played > 0 ? row.played : '—'}
+                    </td>
+                    <td style={{ ...tdStyle, color: diffColor, fontWeight: 800 }}>
+                      {row.diff === null ? '—' : row.diff === 0 ? 'E' : (row.diff > 0 ? '+' : '') + row.diff}
+                    </td>
+                    <td style={{ ...tdStyle, color: 'var(--text)', fontWeight: 800 }}>
+                      {row.played > 0 ? row.totalScore : '—'}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* Per-hole side-by-side scorecard, split 1-9 / 10-18 like a real scorecard */}
       {expanded && (
         <>
-          <OpponentNineTable
+          <LiveNineTable
             rows={cardRows}
             holes={holes}
             sliceStart={0}
             totalLabel="OUT"
             showGrandTotal={false}
-            getScoreColor={getScoreColor}
+            currentHole={data.currentHole}
+            isComplete={data.isComplete}
+            flashHole={flashHole}
           />
           {holes.length > 9 && (
-            <OpponentNineTable
+            <LiveNineTable
               rows={cardRows}
               holes={holes}
               sliceStart={9}
               totalLabel="IN"
               showGrandTotal={true}
-              getScoreColor={getScoreColor}
+              currentHole={data.currentHole}
+              isComplete={data.isComplete}
+              flashHole={flashHole}
             />
           )}
         </>
@@ -712,7 +783,7 @@ function OpponentsLeaderboard({ opponents, holes, playerName, playerStats, getSc
   );
 }
 
-function OpponentNineTable({ rows, holes, sliceStart, totalLabel, showGrandTotal, getScoreColor }) {
+function LiveNineTable({ rows, holes, sliceStart, totalLabel, showGrandTotal, currentHole, isComplete, flashHole }) {
   const nineHoles = holes.slice(sliceStart, sliceStart + 9);
   const sumPar = (slice) => slice.reduce((s, h) => s + Number(h.par || 0), 0);
   const sumScores = (scores, slice, offset) => {
@@ -749,7 +820,10 @@ function OpponentNineTable({ rows, holes, sliceStart, totalLabel, showGrandTotal
               Hole
             </th>
             {nineHoles.map(h => (
-              <th key={h.number} style={thStyle}>{h.number}</th>
+              <th key={h.number} style={{
+                ...thStyle,
+                color: h.number === currentHole && !isComplete ? 'var(--accent)' : 'var(--blue)',
+              }}>{h.number}</th>
             ))}
             <th style={{ ...thStyle, color: 'var(--blue)', fontWeight: 800 }}>{totalLabel}</th>
             {showGrandTotal && <th style={{ ...thStyle, color: 'var(--blue)', fontWeight: 800 }}>TOT</th>}
@@ -781,16 +855,11 @@ function OpponentNineTable({ rows, holes, sliceStart, totalLabel, showGrandTotal
                 </td>
                 {nineHoles.map((h, i) => {
                   const v = row.scores[i + sliceStart];
-                  const hasScore = v !== '' && v !== null && v !== undefined;
-                  const diff = hasScore ? Number(v) - Number(h.par) : null;
+                  const isCurrent = row.isPlayer && h.number === currentHole && !isComplete;
+                  const isFlash = row.isPlayer && h.number === flashHole;
                   return (
-                    <td key={h.number} style={{
-                      ...tdStyle,
-                      color: hasScore ? getScoreColor(diff) : 'var(--blue)',
-                      fontWeight: hasScore ? 700 : 400,
-                      opacity: hasScore ? 1 : 0.45,
-                    }}>
-                      {hasScore ? v : '–'}
+                    <td key={h.number} style={{ ...tdStyle, padding: '4px 2px' }}>
+                      <ScoreBadge score={v} par={h.par} isCurrent={isCurrent} isFlash={isFlash} />
                     </td>
                   );
                 })}
@@ -833,180 +902,6 @@ function HighlightCard({ label, holeNum, diff, score }) {
   );
 }
 
-function Scorecard({ data, flashHole, getScoreColor }) {
-  const [view, setView] = React.useState('compact');
-  const holes = data.holes;
-  const hasYards = holes.some(h => h.yards);
-
-  const sumPar = hs => hs.reduce((s, h) => s + Number(h.par || 0), 0);
-  const sumYds = hs => hs.reduce((s, h) => s + Number(h.yards || 0), 0);
-  const sumScore = hs => hs
-    .filter(h => h.score !== '' && h.score !== null && h.score !== undefined)
-    .reduce((s, h) => s + Number(h.score), 0);
-  const playedCount = hs => hs.filter(h => h.score !== '' && h.score !== null && h.score !== undefined).length;
-
-  const renderCompactTable = () => (
-    <div style={{ overflowX: 'auto', borderRadius: 10, border: '1px solid var(--border)' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead>
-          <tr style={{ background: 'var(--surface)' }}>
-            <th style={{ ...thStyle, textAlign: 'left', paddingLeft: 8 }}>Hole</th>
-            {holes.map(h => (
-              <th key={h.number} style={{
-                ...thStyle,
-                color: h.number === data.currentHole && !data.isComplete ? 'var(--accent)' : 'var(--blue)',
-              }}>{h.number}</th>
-            ))}
-          </tr>
-          <tr style={{ background: 'var(--card)' }}>
-            <td style={{ ...tdStyle, textAlign: 'left', paddingLeft: 8, color: 'var(--blue)', fontWeight: 600, fontSize: 11 }}>Par</td>
-            {holes.map(h => (
-              <td key={h.number} style={{ ...tdStyle, color: 'var(--blue)' }}>{h.par}</td>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td style={{ ...tdStyle, textAlign: 'left', paddingLeft: 8, fontWeight: 700, color: 'var(--text)' }}>Score</td>
-            {holes.map(h => {
-              const hasScore = h.score !== '' && h.score !== null && h.score !== undefined;
-              const diff = hasScore ? Number(h.score) - Number(h.par) : null;
-              const isCurrent = h.number === data.currentHole && !data.isComplete;
-              const isFlash = h.number === flashHole;
-              return (
-                <td key={h.number} style={{
-                  ...tdStyle,
-                  color: hasScore ? getScoreColor(diff) : isCurrent ? 'var(--accent)' : 'var(--blue)',
-                  fontWeight: hasScore ? 700 : 400,
-                  background: isFlash ? 'rgba(45,106,79,0.35)' : isCurrent ? 'rgba(45,106,79,0.1)' : 'transparent',
-                  transition: 'background 0.6s ease',
-                  opacity: !hasScore && !isCurrent ? 0.45 : 1,
-                }}>
-                  {hasScore ? h.score : isCurrent ? '•' : '–'}
-                </td>
-              );
-            })}
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  );
-
-  const renderNineTable = (nineHoles, totalLabel, showGrandTotal) => {
-    const totalPar = sumPar(nineHoles);
-    const totalScore = sumScore(nineHoles);
-    const played = playedCount(nineHoles);
-    const grandPar = showGrandTotal ? sumPar(holes) : null;
-    const grandScore = showGrandTotal ? sumScore(holes) : null;
-    const grandPlayed = showGrandTotal ? playedCount(holes) : null;
-
-    return (
-      <div style={{ overflowX: 'auto', borderRadius: 10, border: '1px solid var(--border)', marginBottom: 10 }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ background: 'var(--surface)' }}>
-              <th style={{ ...thStyle, textAlign: 'left', paddingLeft: 8 }}>Hole</th>
-              {nineHoles.map(h => (
-                <th key={h.number} style={{
-                  ...thStyle,
-                  color: h.number === data.currentHole && !data.isComplete ? 'var(--accent)' : 'var(--blue)',
-                }}>{h.number}</th>
-              ))}
-              <th style={{ ...thStyle, color: 'var(--blue)', fontWeight: 800 }}>{totalLabel}</th>
-              {showGrandTotal && <th style={{ ...thStyle, color: 'var(--blue)', fontWeight: 800 }}>TOT</th>}
-            </tr>
-          </thead>
-          <tbody>
-            <tr style={{ background: 'var(--card2)' }}>
-              <td style={{ ...tdStyle, textAlign: 'left', paddingLeft: 8, color: 'var(--blue)', fontWeight: 600, fontSize: 11 }}>Par</td>
-              {nineHoles.map(h => (
-                <td key={h.number} style={{ ...tdStyle, color: 'var(--blue)' }}>{h.par}</td>
-              ))}
-              <td style={{ ...tdStyle, color: 'var(--blue)', fontWeight: 800 }}>{totalPar}</td>
-              {showGrandTotal && <td style={{ ...tdStyle, color: 'var(--blue)', fontWeight: 800 }}>{grandPar}</td>}
-            </tr>
-            {hasYards && (
-              <tr>
-                <td style={{ ...tdStyle, textAlign: 'left', paddingLeft: 8, color: 'var(--blue)', fontWeight: 600, fontSize: 11 }}>Yds</td>
-                {nineHoles.map(h => (
-                  <td key={h.number} style={{ ...tdStyle, color: 'var(--blue)', fontSize: 11 }}>{h.yards || '—'}</td>
-                ))}
-                <td style={{ ...tdStyle, color: 'var(--blue)', fontWeight: 700, fontSize: 11 }}>{sumYds(nineHoles) || '—'}</td>
-                {showGrandTotal && <td style={{ ...tdStyle, color: 'var(--blue)', fontWeight: 700, fontSize: 11 }}>{sumYds(holes) || '—'}</td>}
-              </tr>
-            )}
-            <tr>
-              <td style={{ ...tdStyle, textAlign: 'left', paddingLeft: 8, fontWeight: 700, color: 'var(--text)' }}>Score</td>
-              {nineHoles.map(h => {
-                const hasScore = h.score !== '' && h.score !== null && h.score !== undefined;
-                const diff = hasScore ? Number(h.score) - Number(h.par) : null;
-                const isCurrent = h.number === data.currentHole && !data.isComplete;
-                const isFlash = h.number === flashHole;
-                return (
-                  <td key={h.number} style={{
-                    ...tdStyle,
-                    color: hasScore ? getScoreColor(diff) : isCurrent ? 'var(--accent)' : 'var(--blue)',
-                    fontWeight: hasScore ? 700 : 400,
-                    background: isFlash ? 'rgba(45,106,79,0.35)' : isCurrent ? 'rgba(45,106,79,0.1)' : 'transparent',
-                    transition: 'background 0.6s ease',
-                    opacity: !hasScore && !isCurrent ? 0.45 : 1,
-                  }}>
-                    {hasScore ? h.score : isCurrent ? '•' : '–'}
-                  </td>
-                );
-              })}
-              <td style={{ ...tdStyle, color: 'var(--accent)', fontWeight: 800 }}>
-                {played > 0 ? totalScore : '—'}
-              </td>
-              {showGrandTotal && (
-                <td style={{ ...tdStyle, color: 'var(--accent)', fontWeight: 800 }}>
-                  {grandPlayed > 0 ? grandScore : '—'}
-                </td>
-              )}
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    );
-  };
-
-  const front = holes.slice(0, 9);
-  const back = holes.slice(9);
-
-  return (
-    <div style={{ marginTop: 16 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-        <div style={{ fontWeight: 700, color: 'var(--text)', fontSize: 15 }}>Scorecard</div>
-        <div style={{ display: 'flex', gap: 4, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 20, padding: 3 }}>
-          <button
-            onClick={() => setView('compact')}
-            style={{
-              background: view === 'compact' ? 'var(--accent)' : 'transparent',
-              color: view === 'compact' ? 'var(--card)' : 'var(--blue)',
-              border: 'none', borderRadius: 16, padding: '4px 12px',
-              fontSize: 11, fontWeight: 700, cursor: 'pointer', letterSpacing: 0.5,
-            }}
-          >COMPACT</button>
-          <button
-            onClick={() => setView('full')}
-            style={{
-              background: view === 'full' ? 'var(--accent)' : 'transparent',
-              color: view === 'full' ? 'var(--card)' : 'var(--blue)',
-              border: 'none', borderRadius: 16, padding: '4px 12px',
-              fontSize: 11, fontWeight: 700, cursor: 'pointer', letterSpacing: 0.5,
-            }}
-          >FULL</button>
-        </div>
-      </div>
-      {view === 'compact' ? renderCompactTable() : (
-        <>
-          {renderNineTable(front, 'OUT', false)}
-          {back.length > 0 && renderNineTable(back, 'IN', true)}
-        </>
-      )}
-    </div>
-  );
-}
 
 // ─── Shared styles ────────────────────────────────────────────────────────────
 
