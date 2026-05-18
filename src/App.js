@@ -1546,6 +1546,10 @@ const MONTAGE_W = 720;
 const MONTAGE_H = 1280;
 const PHOTO_MS = 2000;
 const VIDEO_MAX_MS = 8000;
+// Skip the first N seconds of each video — typically pre-swing setup.
+// Only applied when the clip is long enough to leave usable content behind.
+const VIDEO_TRIM_FRONT_S = 4;
+const VIDEO_TRIM_MIN_LEN_S = 5;
 
 async function recordMontage(items, onProgress) {
   if (typeof MediaRecorder === 'undefined') {
@@ -1578,7 +1582,11 @@ async function recordMontage(items, onProgress) {
     } else {
       const video = await loadVideo(item.url);
       try {
-        video.currentTime = 0;
+        const trim = video.duration > VIDEO_TRIM_MIN_LEN_S ? VIDEO_TRIM_FRONT_S : 0;
+        if (trim > 0) {
+          video.currentTime = trim;
+          await new Promise(r => { video.addEventListener('seeked', r, { once: true }); });
+        }
         await video.play().catch(() => {});
         await paintVideoUntil(ctx, video, item, VIDEO_MAX_MS);
       } finally {
@@ -1737,10 +1745,7 @@ function RecapPlayer({ items, onClose }) {
       timerRef.current = setTimeout(advance, PHOTO_DURATION);
     } else {
       timerRef.current = setTimeout(advance, VIDEO_MAX_DURATION);
-      if (videoRef.current) {
-        videoRef.current.currentTime = 0;
-        videoRef.current.play().catch(() => {});
-      }
+      // currentTime is seeked in onLoadedMetadata on the <video> element.
     }
     return () => { if (timerRef.current) clearTimeout(timerRef.current); };
   }, [idx, advance, items]);
@@ -1779,6 +1784,11 @@ function RecapPlayer({ items, onClose }) {
           src={cur.url}
           autoPlay muted playsInline
           style={{ maxWidth: '100%', maxHeight: '100%' }}
+          onLoadedMetadata={e => {
+            const v = e.currentTarget;
+            if (v.duration > VIDEO_TRIM_MIN_LEN_S) v.currentTime = VIDEO_TRIM_FRONT_S;
+            v.play().catch(() => {});
+          }}
           onEnded={advance}
           onClick={e => e.stopPropagation()}
         />
