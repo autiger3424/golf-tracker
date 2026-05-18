@@ -1550,7 +1550,7 @@ const VIDEO_MAX_MS = 8000;
 // Skip the first N seconds of each video — typically pre-swing setup.
 // Only applied when the clip is long enough to leave usable content behind.
 const VIDEO_TRIM_FRONT_S = 4;
-const VIDEO_TRIM_MIN_LEN_S = 5;
+const VIDEO_TRIM_MIN_LEN_S = 8;
 
 async function recordMontage(items, onProgress) {
   if (typeof MediaRecorder === 'undefined') {
