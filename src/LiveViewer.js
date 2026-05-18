@@ -555,6 +555,9 @@ export default function LiveViewer({ liveId }) {
           </div>
         )}
 
+        {/* Combined scorecard — player + opponents in one view */}
+        <LiveScoreboard data={data} flashHole={flashHole} />
+
         {/* Score breakdown — horizontal bars to match the round-analysis style */}
         {stats && (() => {
           const items = [
@@ -582,9 +585,6 @@ export default function LiveViewer({ liveId }) {
             </div>
           );
         })()}
-
-        {/* Combined scorecard — player + opponents in one view */}
-        <LiveScoreboard data={data} flashHole={flashHole} />
 
 
         {/* Highlights */}
