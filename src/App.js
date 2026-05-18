@@ -1756,6 +1756,36 @@ function RecapPlayer({ items, onClose }) {
     });
   }, [items.length, onClose]);
 
+  const back = React.useCallback(() => {
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
+    setIdx(i => Math.max(0, i - 1));
+  }, []);
+
+  const touchRef = React.useRef(null);
+  const swipedRef = React.useRef(false);
+  const handleTouchStart = (e) => {
+    const t = e.touches[0];
+    touchRef.current = { x: t.clientX, y: t.clientY, time: Date.now() };
+    swipedRef.current = false;
+  };
+  const handleTouchEnd = (e) => {
+    const start = touchRef.current;
+    touchRef.current = null;
+    if (!start) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - start.x;
+    const dy = t.clientY - start.y;
+    const dt = Date.now() - start.time;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5 && dt < 800) {
+      swipedRef.current = true;
+      if (dx < 0) advance(); else back();
+    }
+  };
+  const handleClick = () => {
+    if (swipedRef.current) { swipedRef.current = false; return; }
+    advance();
+  };
+
   React.useEffect(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
     const cur = items[idx];
@@ -1773,10 +1803,11 @@ function RecapPlayer({ items, onClose }) {
     const handler = (e) => {
       if (e.key === 'Escape') onClose();
       else if (e.key === 'ArrowRight') advance();
+      else if (e.key === 'ArrowLeft') back();
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [onClose, advance]);
+  }, [onClose, advance, back]);
 
   const cur = items[idx];
   if (!cur) return null;
@@ -1789,11 +1820,14 @@ function RecapPlayer({ items, onClose }) {
 
   return (
     <div
-      onClick={advance}
+      onClick={handleClick}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
       style={{
         position: 'fixed', inset: 0, zIndex: 1000,
         background: 'rgba(0,0,0,0.96)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
+        touchAction: 'pan-y',
       }}
     >
       {/* Sized to the rendered video/image bounds so the overlay sits on top of it,
