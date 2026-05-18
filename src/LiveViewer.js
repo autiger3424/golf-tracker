@@ -26,12 +26,12 @@ function getScoreColor(diff) {
 
 // Classic scorecard mark:
 //   Par          → no symbol (plain number)
-//   Birdie       → open circle
-//   Eagle        → solid circle
-//   Albatross+   → solid circle with outer frame
-//   Bogey        → open square
-//   Double bogey → solid square
-//   Triple+      → solid square with outer frame
+//   Birdie       → open circle, black number
+//   Eagle        → two concentric circles, black number
+//   Albatross+   → solid circle with outer frame, white number
+//   Bogey        → open square, black number
+//   Double bogey → two concentric squares, black number
+//   Triple+      → solid square with outer frame, white number
 function ScoreBadge({ score, par, isCurrent, isFlash, size = 26 }) {
   const hasScore = score !== '' && score !== null && score !== undefined;
   const flashBg = isFlash ? 'rgba(45,106,79,0.35)' : 'transparent';
@@ -50,32 +50,42 @@ function ScoreBadge({ score, par, isCurrent, isFlash, size = 26 }) {
   const diff = Number(score) - Number(par || 0);
   const RED = '#c81f1f';
   const BLUE = '#1e3a8a';
-  const inner = Math.floor(size * 0.82);
+  const outer = Math.floor(size * 0.92);
+  const inner = Math.floor(size * 0.66);
+  const BLACK = 'var(--text)';
 
   if (diff === 0) {
-    return <span style={{ ...wrapper, color: 'var(--text)', fontWeight: 700 }}>{score}</span>;
+    return <span style={{ ...wrapper, color: BLACK, fontWeight: 700 }}>{score}</span>;
   }
   if (diff === -1) {
-    // Birdie — open circle
+    // Birdie — open circle, black number
     return (
       <span style={wrapper}>
         <span style={{
-          width: inner, height: inner, borderRadius: '50%',
-          border: `2px solid ${RED}`, color: RED, background: 'transparent',
+          width: outer, height: outer, borderRadius: '50%',
+          border: `2px solid ${RED}`, color: BLACK, background: 'transparent',
           display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
         }}>{score}</span>
       </span>
     );
   }
   if (diff === -2) {
-    // Eagle — solid circle
+    // Eagle — two concentric circles, black number
     return (
       <span style={wrapper}>
         <span style={{
-          width: inner, height: inner, borderRadius: '50%',
-          background: RED, color: 'white',
+          width: outer, height: outer, borderRadius: '50%',
+          border: `1.5px solid ${RED}`,
           display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-        }}>{score}</span>
+          color: BLACK, background: 'transparent',
+        }}>
+          <span style={{
+            width: inner, height: inner, borderRadius: '50%',
+            border: `1.5px solid ${RED}`, background: 'transparent',
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: Math.floor(size * 0.4),
+          }}>{score}</span>
+        </span>
       </span>
     );
   }
@@ -84,7 +94,7 @@ function ScoreBadge({ score, par, isCurrent, isFlash, size = 26 }) {
     return (
       <span style={wrapper}>
         <span style={{
-          width: inner, height: inner, borderRadius: '50%',
+          width: outer, height: outer, borderRadius: '50%',
           background: RED, color: 'white',
           display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
           boxShadow: `0 0 0 2px white, 0 0 0 3.5px ${RED}`,
@@ -93,34 +103,42 @@ function ScoreBadge({ score, par, isCurrent, isFlash, size = 26 }) {
     );
   }
   if (diff === 1) {
-    // Bogey — open square
+    // Bogey — open square, black number
     return (
       <span style={wrapper}>
         <span style={{
-          width: inner, height: inner,
-          border: `2px solid ${BLUE}`, color: BLUE, background: 'transparent',
+          width: outer, height: outer,
+          border: `2px solid ${BLUE}`, color: BLACK, background: 'transparent',
           display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
         }}>{score}</span>
       </span>
     );
   }
   if (diff === 2) {
-    // Double bogey — solid square
+    // Double bogey — two concentric squares, black number
     return (
       <span style={wrapper}>
         <span style={{
-          width: inner, height: inner,
-          background: BLUE, color: 'white',
+          width: outer, height: outer,
+          border: `1.5px solid ${BLUE}`,
           display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-        }}>{score}</span>
+          color: BLACK, background: 'transparent',
+        }}>
+          <span style={{
+            width: inner, height: inner,
+            border: `1.5px solid ${BLUE}`, background: 'transparent',
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: Math.floor(size * 0.4),
+          }}>{score}</span>
+        </span>
       </span>
     );
   }
-  // Triple bogey or worse — solid square with outer frame
+  // Triple bogey or worse — solid square with outer frame, white number (unchanged)
   return (
     <span style={wrapper}>
       <span style={{
-        width: inner, height: inner,
+        width: outer, height: outer,
         background: BLUE, color: 'white',
         display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
         boxShadow: `0 0 0 2px white, 0 0 0 3.5px ${BLUE}`,
