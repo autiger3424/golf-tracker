@@ -1673,25 +1673,34 @@ function drawOverlay(ctx, item) {
   const hasScore = item.score !== '' && item.score !== null && item.score !== undefined;
   const diff = hasScore && item.par ? parseInt(item.score) - item.par : null;
   const diffLabel = diff === null ? '' : diff === 0 ? ' (E)' : diff > 0 ? ` (+${diff})` : ` (${diff})`;
-  const text = `HOLE ${item.hole}${item.par ? ` · PAR ${item.par}` : ''}${hasScore ? ` · ${item.score}${diffLabel}` : ''}`;
 
-  ctx.font = 'bold 28px -apple-system, system-ui, sans-serif';
-  const metrics = ctx.measureText(text);
-  const padX = 18, padY = 10, pillX = 24, pillY = 28;
-  const pillW = metrics.width + padX * 2;
-  const pillH = 28 + padY * 2 - 4;
+  const x = 32, yTop = 36;
+  const titleSize = 72;
+  const subSize = 48;
+  const gap = 10;
 
-  ctx.fillStyle = 'rgba(0,0,0,0.62)';
-  if (ctx.roundRect) {
-    ctx.beginPath();
-    ctx.roundRect(pillX, pillY, pillW, pillH, 24);
-    ctx.fill();
-  } else {
-    ctx.fillRect(pillX, pillY, pillW, pillH);
-  }
-  ctx.fillStyle = 'white';
   ctx.textBaseline = 'top';
-  ctx.fillText(text, pillX + padX, pillY + padY - 2);
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.85)';
+  ctx.shadowBlur = 12;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 3;
+
+  ctx.font = `900 ${titleSize}px -apple-system, system-ui, sans-serif`;
+  ctx.fillStyle = 'white';
+  ctx.fillText(`HOLE ${item.hole}`, x, yTop);
+
+  if (item.par || hasScore) {
+    let subText = '';
+    if (item.par) subText += `PAR ${item.par}`;
+    if (hasScore) subText += (subText ? '  ' : '') + `${item.score}${diffLabel}`;
+    ctx.font = `800 ${subSize}px -apple-system, system-ui, sans-serif`;
+    ctx.fillText(subText, x, yTop + titleSize + gap);
+  }
+
+  ctx.shadowColor = 'transparent';
+  ctx.shadowBlur = 0;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 0;
 }
 
 async function offerSaveOrShare(blob) {
@@ -1803,17 +1812,22 @@ function RecapPlayer({ items, onClose }) {
 
       {/* Hole + score overlay */}
       <div style={{
-        position: 'absolute', top: 20, left: 20,
-        background: 'rgba(0,0,0,0.6)', color: 'white',
-        padding: '10px 16px', borderRadius: 24,
-        fontWeight: 800, fontSize: 13, letterSpacing: 0.6,
-        display: 'flex', alignItems: 'center', gap: 10,
+        position: 'absolute', top: 24, left: 20,
+        color: 'white',
+        textShadow: '0 2px 8px rgba(0,0,0,0.85), 0 0 4px rgba(0,0,0,0.7)',
+        fontWeight: 900, letterSpacing: 1,
+        display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4,
+        lineHeight: 1,
       }}>
-        <span>HOLE {cur.hole}</span>
-        {cur.par && <span style={{ opacity: 0.7 }}>PAR {cur.par}</span>}
-        {hasScore && (
-          <span style={{ color: diffColor }}>
-            {cur.score}{diffLabel && ` (${diffLabel})`}
+        <span style={{ fontSize: 32 }}>HOLE {cur.hole}</span>
+        {(cur.par || hasScore) && (
+          <span style={{ fontSize: 22, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 10 }}>
+            {cur.par && <span style={{ opacity: 0.85 }}>PAR {cur.par}</span>}
+            {hasScore && (
+              <span style={{ color: diffColor }}>
+                {cur.score}{diffLabel && ` (${diffLabel})`}
+              </span>
+            )}
           </span>
         )}
       </div>
