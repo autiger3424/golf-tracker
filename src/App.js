@@ -1460,7 +1460,7 @@ function HoleNotesSection({ holes }) {
 // ============================================================
 // ROUND RECAP — auto-plays each hole's photos/videos in sequence
 // ============================================================
-function RoundRecap({ holes }) {
+function RoundRecap({ holes, courseName }) {
   const [playing, setPlaying] = React.useState(false);
   const [exporting, setExporting] = React.useState(false);
   const [exportProgress, setExportProgress] = React.useState(null);
@@ -1471,8 +1471,9 @@ function RoundRecap({ holes }) {
       hole: h.number,
       par: h.par,
       score: h.score,
+      courseName,
     }))
-  ), [holes]);
+  ), [holes, courseName]);
 
   if (items.length === 0) return null;
 
@@ -1675,26 +1676,35 @@ function drawOverlay(ctx, item) {
   const diffLabel = diff === null ? '' : diff === 0 ? ' (E)' : diff > 0 ? ` (+${diff})` : ` (${diff})`;
 
   const x = 56, yTop = 110;
+  const courseSize = 34;
   const titleSize = 72;
   const subSize = 48;
   const gap = 10;
+  let cursor = yTop;
 
   ctx.textBaseline = 'top';
   ctx.shadowColor = 'rgba(0, 0, 0, 0.85)';
   ctx.shadowBlur = 12;
   ctx.shadowOffsetX = 0;
   ctx.shadowOffsetY = 3;
+  ctx.fillStyle = 'white';
+
+  if (item.courseName) {
+    ctx.font = `700 ${courseSize}px -apple-system, system-ui, sans-serif`;
+    ctx.fillText(item.courseName.toUpperCase(), x, cursor);
+    cursor += courseSize + gap;
+  }
 
   ctx.font = `900 ${titleSize}px -apple-system, system-ui, sans-serif`;
-  ctx.fillStyle = 'white';
-  ctx.fillText(`HOLE ${item.hole}`, x, yTop);
+  ctx.fillText(`HOLE ${item.hole}`, x, cursor);
+  cursor += titleSize + gap;
 
   if (item.par || hasScore) {
     let subText = '';
     if (item.par) subText += `PAR ${item.par}`;
     if (hasScore) subText += (subText ? '  ' : '') + `${item.score}${diffLabel}`;
     ctx.font = `800 ${subSize}px -apple-system, system-ui, sans-serif`;
-    ctx.fillText(subText, x, yTop + titleSize + gap);
+    ctx.fillText(subText, x, cursor);
   }
 
   ctx.shadowColor = 'transparent';
@@ -1828,6 +1838,11 @@ function RecapPlayer({ items, onClose }) {
           lineHeight: 1,
           pointerEvents: 'none',
         }}>
+          {cur.courseName && (
+            <span style={{ fontSize: 14, fontWeight: 700, letterSpacing: 2, opacity: 0.92, textTransform: 'uppercase' }}>
+              {cur.courseName}
+            </span>
+          )}
           <span style={{ fontSize: 32 }}>HOLE {cur.hole}</span>
           {(cur.par || hasScore) && (
             <span style={{ fontSize: 22, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -1925,7 +1940,7 @@ function AnalysisScreen({ round, onSave, onNewRound, saved, onBack }) {
         </div>
       </div>
 
-      <RoundRecap holes={round.holes} />
+      <RoundRecap holes={round.holes} courseName={round.courseName} />
 
       <div className="stats-grid">
         <div className="stat-box">
