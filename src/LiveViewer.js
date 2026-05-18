@@ -24,8 +24,14 @@ function getScoreColor(diff) {
   return SCORE_COLORS.worse;
 }
 
-// Classic scorecard mark — circle for under par, square for over par.
-// Eagle/double-bogey get an extra outer ring.
+// Classic scorecard mark:
+//   Par          → no symbol (plain number)
+//   Birdie       → open circle
+//   Eagle        → solid circle
+//   Albatross+   → solid circle with outer frame
+//   Bogey        → open square
+//   Double bogey → solid square
+//   Triple+      → solid square with outer frame
 function ScoreBadge({ score, par, isCurrent, isFlash, size = 26 }) {
   const hasScore = score !== '' && score !== null && score !== undefined;
   const flashBg = isFlash ? 'rgba(45,106,79,0.35)' : 'transparent';
@@ -50,6 +56,19 @@ function ScoreBadge({ score, par, isCurrent, isFlash, size = 26 }) {
     return <span style={{ ...wrapper, color: 'var(--text)', fontWeight: 700 }}>{score}</span>;
   }
   if (diff === -1) {
+    // Birdie — open circle
+    return (
+      <span style={wrapper}>
+        <span style={{
+          width: inner, height: inner, borderRadius: '50%',
+          border: `2px solid ${RED}`, color: RED, background: 'transparent',
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        }}>{score}</span>
+      </span>
+    );
+  }
+  if (diff === -2) {
+    // Eagle — solid circle
     return (
       <span style={wrapper}>
         <span style={{
@@ -60,7 +79,8 @@ function ScoreBadge({ score, par, isCurrent, isFlash, size = 26 }) {
       </span>
     );
   }
-  if (diff <= -2) {
+  if (diff <= -3) {
+    // Albatross or better — solid circle with outer frame
     return (
       <span style={wrapper}>
         <span style={{
@@ -73,6 +93,19 @@ function ScoreBadge({ score, par, isCurrent, isFlash, size = 26 }) {
     );
   }
   if (diff === 1) {
+    // Bogey — open square
+    return (
+      <span style={wrapper}>
+        <span style={{
+          width: inner, height: inner,
+          border: `2px solid ${BLUE}`, color: BLUE, background: 'transparent',
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        }}>{score}</span>
+      </span>
+    );
+  }
+  if (diff === 2) {
+    // Double bogey — solid square
     return (
       <span style={wrapper}>
         <span style={{
@@ -83,7 +116,7 @@ function ScoreBadge({ score, par, isCurrent, isFlash, size = 26 }) {
       </span>
     );
   }
-  // Double bogey or worse
+  // Triple bogey or worse — solid square with outer frame
   return (
     <span style={wrapper}>
       <span style={{
