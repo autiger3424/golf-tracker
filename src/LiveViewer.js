@@ -555,18 +555,33 @@ export default function LiveViewer({ liveId }) {
           </div>
         )}
 
-        {/* Score breakdown pills (text labels, no emojis) */}
-        {stats && (
-          <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
-            {stats.eagles > 0 && <ScorePill label="Eagle" count={stats.eagles} color={SCORE_COLORS.eagle} />}
-            {stats.birdies > 0 && <ScorePill label="Birdie" count={stats.birdies} color={SCORE_COLORS.birdie} />}
-            {stats.pars > 0 && <ScorePill label="Par" count={stats.pars} color={SCORE_COLORS.par} />}
-            {stats.bogeys > 0 && <ScorePill label="Bogey" count={stats.bogeys} color={SCORE_COLORS.bogey} />}
-            {stats.doubles > 0 && <ScorePill label="Double Bogey" count={stats.doubles} color={SCORE_COLORS.double} />}
-            {stats.triples > 0 && <ScorePill label="Triple Bogey" count={stats.triples} color={SCORE_COLORS.worse} />}
-            {stats.worse > 0 && <ScorePill label="Worse" count={stats.worse} color={SCORE_COLORS.worse} />}
-          </div>
-        )}
+        {/* Score breakdown — horizontal bars to match the round-analysis style */}
+        {stats && (() => {
+          const items = [
+            { label: 'Eagle / Better', count: stats.eagles, color: SCORE_COLORS.eagle },
+            { label: 'Birdie', count: stats.birdies, color: SCORE_COLORS.birdie },
+            { label: 'Par', count: stats.pars, color: SCORE_COLORS.par },
+            { label: 'Bogey', count: stats.bogeys, color: SCORE_COLORS.bogey },
+            { label: 'Double', count: stats.doubles, color: SCORE_COLORS.double },
+            { label: 'Triple+', count: stats.triples + stats.worse, color: SCORE_COLORS.worse },
+          ];
+          const max = Math.max(...items.map(i => i.count), 1);
+          if (items.every(i => i.count === 0)) return null;
+          return (
+            <div className="card" style={{ marginTop: 12 }}>
+              <div className="card-title">Score Breakdown</div>
+              {items.map((it, i) => (
+                <div key={i} className="breakdown-row">
+                  <span className="breakdown-label">{it.label}</span>
+                  <div className="breakdown-bar-wrap">
+                    <div className="breakdown-bar" style={{ width: ((it.count / max) * 100) + '%', background: it.color }} />
+                  </div>
+                  <span className="breakdown-count">{it.count}</span>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
 
         {/* Combined scorecard — player + opponents in one view */}
         <LiveScoreboard data={data} flashHole={flashHole} />
@@ -929,17 +944,6 @@ function LiveNineTable({ rows, holes, sliceStart, totalLabel, showGrandTotal, cu
   );
 }
 
-function ScorePill({ label, count, color }) {
-  return (
-    <span style={{
-      padding: '3px 10px', borderRadius: 20,
-      background: color + '22',
-      color: color, fontSize: 12, fontWeight: 700,
-    }}>
-      {label} {count}
-    </span>
-  );
-}
 
 function HighlightCard({ label, holeNum, diff, score }) {
   return (
