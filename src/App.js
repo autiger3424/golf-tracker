@@ -1462,6 +1462,9 @@ function HoleNotesSection({ holes }) {
 // ============================================================
 function RoundRecap({ holes }) {
   const [playing, setPlaying] = React.useState(false);
+  const [exporting, setExporting] = React.useState(false);
+  const [exportProgress, setExportProgress] = React.useState(null);
+
   const items = React.useMemo(() => (holes || []).flatMap(h =>
     (h.media || []).map(m => ({
       ...m,
@@ -1479,22 +1482,235 @@ function RoundRecap({ holes }) {
   if (videoCount) parts.push(`${videoCount} video${videoCount === 1 ? '' : 's'}`);
   if (imageCount) parts.push(`${imageCount} photo${imageCount === 1 ? '' : 's'}`);
 
+  const handleExport = async () => {
+    if (exporting) return;
+    setExporting(true);
+    setExportProgress({ index: 0, total: items.length });
+    try {
+      const blob = await recordMontage(items, (p) => setExportProgress(p));
+      await offerSaveOrShare(blob);
+    } catch (err) {
+      console.error('Montage export failed:', err);
+      alert('Could not export montage: ' + (err.message || err));
+    } finally {
+      setExporting(false);
+      setExportProgress(null);
+    }
+  };
+
   return (
     <div className="card" style={{ marginTop: 12 }}>
       <div className="card-title">Round Recap</div>
       <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
         {parts.join(' + ')} from {items.length === 1 ? '1 hole' : `${new Set(items.map(i => i.hole)).size} holes`}
       </div>
-      <button
-        onClick={() => setPlaying(true)}
-        className="btn btn-primary"
-        style={{ width: '100%' }}
-      >
-        ▶ Play Recap
-      </button>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button
+          onClick={() => setPlaying(true)}
+          className="btn btn-primary"
+          style={{ flex: 1 }}
+          disabled={exporting}
+        >▶ Play Recap</button>
+        <button
+          onClick={handleExport}
+          className="btn btn-secondary"
+          style={{ flex: 1 }}
+          disabled={exporting}
+        >{exporting ? 'Saving…' : '⬇ Save to Phone'}</button>
+      </div>
+      {exporting && exportProgress && (
+        <div style={{
+          marginTop: 10, padding: 10, borderRadius: 8,
+          background: 'var(--surface)', fontSize: 12, color: 'var(--text-dim)',
+        }}>
+          <div style={{ marginBottom: 6 }}>
+            Recording clip {Math.min(exportProgress.index + 1, exportProgress.total)} of {exportProgress.total}…
+          </div>
+          <div style={{ height: 4, background: 'var(--card2)', borderRadius: 2, overflow: 'hidden' }}>
+            <div style={{
+              width: ((exportProgress.index / exportProgress.total) * 100) + '%',
+              height: '100%', background: 'var(--accent)', transition: 'width 0.3s',
+            }} />
+          </div>
+        </div>
+      )}
       {playing && <RecapPlayer items={items} onClose={() => setPlaying(false)} />}
     </div>
   );
+}
+
+// ─── Montage recorder ──────────────────────────────────────
+// Paint each clip to a canvas, record the canvas stream with MediaRecorder.
+// Returns a Blob (video/mp4 on iOS Safari, video/webm elsewhere).
+const MONTAGE_W = 720;
+const MONTAGE_H = 1280;
+const PHOTO_MS = 1600;
+const VIDEO_MAX_MS = 2500;
+
+async function recordMontage(items, onProgress) {
+  if (typeof MediaRecorder === 'undefined') {
+    throw new Error('Your browser does not support video recording.');
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = MONTAGE_W;
+  canvas.height = MONTAGE_H;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = 'black';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const stream = canvas.captureStream(30);
+  const mime = pickMime();
+  const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : {});
+  const chunks = [];
+  recorder.ondataavailable = e => { if (e.data && e.data.size > 0) chunks.push(e.data); };
+  const stopped = new Promise(r => { recorder.onstop = r; });
+  recorder.start();
+
+  // Brief lead-in so the recorder has a first frame.
+  await sleep(100);
+
+  for (let i = 0; i < items.length; i++) {
+    onProgress({ index: i, total: items.length });
+    const item = items[i];
+    if (item.type === 'image') {
+      const img = await loadImage(item.url);
+      await paintForMs(ctx, img, item, PHOTO_MS);
+    } else {
+      const video = await loadVideo(item.url);
+      try {
+        video.currentTime = 0;
+        await video.play().catch(() => {});
+        await paintVideoUntil(ctx, video, item, VIDEO_MAX_MS);
+      } finally {
+        try { video.pause(); } catch (e) {}
+        video.src = '';
+        video.load();
+      }
+    }
+  }
+  onProgress({ index: items.length, total: items.length });
+
+  await sleep(200);
+  recorder.stop();
+  await stopped;
+  return new Blob(chunks, { type: recorder.mimeType || 'video/webm' });
+}
+
+function pickMime() {
+  const options = ['video/mp4;codecs=h264', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+  for (const opt of options) {
+    if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(opt)) return opt;
+  }
+  return null;
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function loadImage(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('Image load failed'));
+    img.src = url;
+  });
+}
+
+function loadVideo(url) {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement('video');
+    video.crossOrigin = 'anonymous';
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = 'auto';
+    video.onloadeddata = () => resolve(video);
+    video.onerror = () => reject(new Error('Video load failed'));
+    video.src = url;
+  });
+}
+
+async function paintForMs(ctx, source, item, ms) {
+  const start = performance.now();
+  while (performance.now() - start < ms) {
+    drawCovered(ctx, source);
+    drawOverlay(ctx, item);
+    await new Promise(r => requestAnimationFrame(r));
+  }
+}
+
+async function paintVideoUntil(ctx, video, item, maxMs) {
+  const start = performance.now();
+  while (performance.now() - start < maxMs && !video.ended) {
+    drawCovered(ctx, video);
+    drawOverlay(ctx, item);
+    await new Promise(r => requestAnimationFrame(r));
+  }
+}
+
+function drawCovered(ctx, source) {
+  const sw = source.videoWidth || source.naturalWidth || 0;
+  const sh = source.videoHeight || source.naturalHeight || 0;
+  if (!sw || !sh) return;
+  const cw = ctx.canvas.width, ch = ctx.canvas.height;
+  const sAR = sw / sh, cAR = cw / ch;
+  let dw, dh, dx, dy;
+  if (sAR > cAR) { dh = ch; dw = ch * sAR; dx = (cw - dw) / 2; dy = 0; }
+  else           { dw = cw; dh = cw / sAR; dx = 0; dy = (ch - dh) / 2; }
+  ctx.fillStyle = 'black';
+  ctx.fillRect(0, 0, cw, ch);
+  ctx.drawImage(source, dx, dy, dw, dh);
+}
+
+function drawOverlay(ctx, item) {
+  const hasScore = item.score !== '' && item.score !== null && item.score !== undefined;
+  const diff = hasScore && item.par ? parseInt(item.score) - item.par : null;
+  const diffLabel = diff === null ? '' : diff === 0 ? ' (E)' : diff > 0 ? ` (+${diff})` : ` (${diff})`;
+  const text = `HOLE ${item.hole}${item.par ? ` · PAR ${item.par}` : ''}${hasScore ? ` · ${item.score}${diffLabel}` : ''}`;
+
+  ctx.font = 'bold 28px -apple-system, system-ui, sans-serif';
+  const metrics = ctx.measureText(text);
+  const padX = 18, padY = 10, pillX = 24, pillY = 28;
+  const pillW = metrics.width + padX * 2;
+  const pillH = 28 + padY * 2 - 4;
+
+  ctx.fillStyle = 'rgba(0,0,0,0.62)';
+  if (ctx.roundRect) {
+    ctx.beginPath();
+    ctx.roundRect(pillX, pillY, pillW, pillH, 24);
+    ctx.fill();
+  } else {
+    ctx.fillRect(pillX, pillY, pillW, pillH);
+  }
+  ctx.fillStyle = 'white';
+  ctx.textBaseline = 'top';
+  ctx.fillText(text, pillX + padX, pillY + padY - 2);
+}
+
+async function offerSaveOrShare(blob) {
+  const isMp4 = (blob.type || '').includes('mp4');
+  const ext = isMp4 ? 'mp4' : 'webm';
+  const filename = `round-recap-${new Date().toISOString().slice(0, 10)}.${ext}`;
+  const file = new File([blob], filename, { type: blob.type });
+
+  // Prefer native share sheet — on iOS this exposes Save Video to Photos.
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: 'Round Recap' });
+      return;
+    } catch (err) {
+      if (err.name === 'AbortError') return;
+      console.warn('Share failed, falling back to download:', err);
+    }
+  }
+  // Fallback: download link.
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function RecapPlayer({ items, onClose }) {
