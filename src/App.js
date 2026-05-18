@@ -6,8 +6,9 @@ import LiveViewer from './LiveViewer';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 // import { useGoogleLogin } from '@react-oauth/google'; // archived with Google Calendar
 import { GOOGLE_CLIENT_ID } from './config';
-import { db } from './firebase';
+import { db, storage } from './firebase';
 import { collection, doc, setDoc, deleteDoc, onSnapshot, getDoc, getDocs } from 'firebase/firestore';
+import { ref as storageRef, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
 
 // ============================================================
 // HELPERS
@@ -350,7 +351,174 @@ function NumberStepper({ value, onChange, min = 0, max = 20, defaultVal }) {
 // ============================================================
 // HOLE CARD
 // ============================================================
-function HoleCard({ hole, onChange, isManual }) {
+function HoleMedia({ roundId, holeNumber, media, onChange }) {
+  const [uploads, setUploads] = React.useState([]);
+  const [lightbox, setLightbox] = React.useState(null);
+  const fileInputRef = React.useRef(null);
+
+  if (!roundId) {
+    return (
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', fontStyle: 'italic' }}>
+        Save the round to attach photos or videos.
+      </div>
+    );
+  }
+
+  const handleFiles = (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    if (!files.length) return;
+
+    files.forEach(file => {
+      if (file.size > 200 * 1024 * 1024) {
+        alert(`${file.name} is over 200MB — please pick a smaller clip.`);
+        return;
+      }
+      const id = genId();
+      const isVideo = file.type.startsWith('video/');
+      const ext = (file.name.split('.').pop() || (isVideo ? 'mp4' : 'jpg')).toLowerCase();
+      const path = `rounds/${roundId}/hole_${holeNumber}/${id}.${ext}`;
+
+      setUploads(u => [...u, { id, type: isVideo ? 'video' : 'image', progress: 0 }]);
+      const ref = storageRef(storage, path);
+      const task = uploadBytesResumable(ref, file, { contentType: file.type });
+      task.on(
+        'state_changed',
+        snap => {
+          const pct = (snap.bytesTransferred / snap.totalBytes) * 100;
+          setUploads(u => u.map(x => x.id === id ? { ...x, progress: pct } : x));
+        },
+        err => {
+          console.error('Upload failed:', err);
+          setUploads(u => u.map(x => x.id === id ? { ...x, error: err.code || 'failed' } : x));
+        },
+        async () => {
+          try {
+            const url = await getDownloadURL(task.snapshot.ref);
+            const item = { id, type: isVideo ? 'video' : 'image', url, path, addedAt: Date.now() };
+            onChange({ media: [...(media || []), item] });
+          } catch (e) { console.error('getDownloadURL failed:', e); }
+          setUploads(u => u.filter(x => x.id !== id));
+        }
+      );
+    });
+  };
+
+  const handleDelete = async (item) => {
+    if (!window.confirm('Delete this attachment?')) return;
+    try { await deleteObject(storageRef(storage, item.path)); }
+    catch (e) { console.warn('Storage delete failed (may already be gone):', e.code); }
+    onChange({ media: (media || []).filter(m => m.id !== item.id) });
+  };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
+        {(media || []).map(item => (
+          <div key={item.id} style={{ position: 'relative', width: 80, height: 80 }}>
+            <button
+              onClick={() => setLightbox(item)}
+              style={{
+                width: '100%', height: '100%', padding: 0,
+                border: '1px solid var(--border)', borderRadius: 8,
+                background: 'var(--card)', cursor: 'pointer', overflow: 'hidden',
+                position: 'relative',
+              }}
+            >
+              {item.type === 'video' ? (
+                <video src={item.url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} muted playsInline preload="metadata" />
+              ) : (
+                <img src={item.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              )}
+              {item.type === 'video' && (
+                <span style={{
+                  position: 'absolute', inset: 0,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: 'white', fontSize: 24, textShadow: '0 1px 4px rgba(0,0,0,0.7)',
+                  pointerEvents: 'none',
+                }}>▶</span>
+              )}
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); handleDelete(item); }}
+              title="Delete"
+              style={{
+                position: 'absolute', top: 2, right: 2,
+                width: 22, height: 22, padding: 0, lineHeight: 1,
+                background: 'rgba(0,0,0,0.6)', color: 'white',
+                border: 'none', borderRadius: '50%',
+                fontSize: 16, cursor: 'pointer',
+              }}
+            >×</button>
+          </div>
+        ))}
+        {uploads.map(u => (
+          <div key={u.id} style={{
+            width: 80, height: 80, borderRadius: 8,
+            border: '1px dashed var(--blue)', background: 'var(--card)',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            fontSize: 10, color: u.error ? 'var(--red)' : 'var(--blue)', gap: 3, fontWeight: 700,
+          }}>
+            {u.error ? <span>Failed</span> : <><span>UPLOADING</span><span>{Math.round(u.progress)}%</span></>}
+          </div>
+        ))}
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          style={{
+            width: 80, height: 80, borderRadius: 8,
+            border: '2px dashed var(--accent)',
+            background: 'transparent', color: 'var(--accent)',
+            cursor: 'pointer', fontSize: 28, fontWeight: 800, lineHeight: 1,
+          }}
+          title="Add photo or video"
+        >+</button>
+        <input
+          ref={fileInputRef} type="file" accept="image/*,video/*" multiple
+          style={{ display: 'none' }} onChange={handleFiles}
+        />
+      </div>
+      {lightbox && <MediaLightbox item={lightbox} onClose={() => setLightbox(null)} />}
+    </div>
+  );
+}
+
+function MediaLightbox({ item, onClose }) {
+  React.useEffect(() => {
+    const handler = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose]);
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 1000,
+        background: 'rgba(0,0,0,0.92)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12,
+      }}
+    >
+      {item.type === 'video' ? (
+        <video src={item.url} controls autoPlay playsInline
+          style={{ maxWidth: '100%', maxHeight: '100%' }}
+          onClick={e => e.stopPropagation()} />
+      ) : (
+        <img src={item.url} alt=""
+          style={{ maxWidth: '100%', maxHeight: '100%' }}
+          onClick={e => e.stopPropagation()} />
+      )}
+      <button onClick={onClose} style={{
+        position: 'absolute', top: 16, right: 16,
+        width: 36, height: 36, padding: 0, lineHeight: 1,
+        background: 'rgba(0,0,0,0.6)', color: 'white',
+        border: 'none', borderRadius: '50%',
+        fontSize: 22, cursor: 'pointer',
+      }}>×</button>
+    </div>
+  );
+}
+
+// ============================================================
+function HoleCard({ hole, onChange, isManual, roundId }) {
   const [expanded, setExpanded] = React.useState(false);
   const scoreClass = holeScoreClass(hole.score, hole.par);
   const diff = hole.score !== '' && hole.score !== null ? parseInt(hole.score) - hole.par : null;
@@ -489,6 +657,16 @@ function HoleCard({ hole, onChange, isManual }) {
               <button className={`chip${hole.water ? ' active blue' : ''}`}
                 onClick={() => onChange({ water: !hole.water })}>Water</button>
             </div>
+          </div>
+
+          <div style={{ marginTop: 12 }}>
+            <label className="form-label">Photos / Videos</label>
+            <HoleMedia
+              roundId={roundId}
+              holeNumber={hole.number}
+              media={hole.media}
+              onChange={onChange}
+            />
           </div>
 
           <div style={{ marginTop: 12 }}>
@@ -1230,7 +1408,7 @@ function RoundScreen({ round, onUpdateHole, onAddOpponent, onRemoveOpponent, onU
           onUpdateScore={onUpdateOpponentScore}
         />
         {round.holes.map((hole, i) => (
-          <HoleCard key={hole.number} hole={hole} isManual={isManual}
+          <HoleCard key={hole.number} hole={hole} isManual={isManual} roundId={round.id}
             onChange={(updates) => onUpdateHole(i, updates)} />
         ))}
         <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
@@ -1612,7 +1790,7 @@ function EditRoundScreen({ round, onSave, onCancel }) {
           Holes
         </div>
         {holes.map((hole, i) => (
-          <HoleCard key={hole.number} hole={hole} isManual={round.isManual}
+          <HoleCard key={hole.number} hole={hole} isManual={round.isManual} roundId={round.id}
             onChange={(updates) => handleHoleChange(i, updates)} />
         ))}
 
