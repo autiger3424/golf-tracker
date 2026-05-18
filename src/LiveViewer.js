@@ -576,6 +576,9 @@ export default function LiveViewer({ liveId }) {
         {/* Combined scorecard — player + opponents in one view */}
         <LiveScoreboard data={data} flashHole={flashHole} />
 
+        {/* Photos / videos uploaded by the player, grouped by hole */}
+        <LiveMediaGallery holes={data.holes} />
+
         {/* Score breakdown — horizontal bars to match the round-analysis style */}
         {stats && (() => {
           const items = [
@@ -714,6 +717,93 @@ export default function LiveViewer({ liveId }) {
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
+
+function LiveMediaGallery({ holes }) {
+  const [lightbox, setLightbox] = React.useState(null);
+  React.useEffect(() => {
+    const handler = (e) => { if (e.key === 'Escape') setLightbox(null); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
+  const holesWithMedia = (holes || []).filter(h => Array.isArray(h.media) && h.media.length > 0);
+  if (holesWithMedia.length === 0) return null;
+
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div style={{ fontWeight: 700, color: 'var(--text)', fontSize: 15, marginBottom: 10 }}>
+        Photos & Videos
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {holesWithMedia.map(h => (
+          <div key={h.number} style={{
+            background: 'var(--card)', border: '1px solid var(--border)',
+            borderRadius: 10, padding: 10,
+          }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--blue)', marginBottom: 6 }}>
+              Hole {h.number}{h.par ? ` · Par ${h.par}` : ''}
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {h.media.map(m => (
+                <button
+                  key={m.id}
+                  onClick={() => setLightbox(m)}
+                  style={{
+                    width: 84, height: 84, padding: 0,
+                    border: '1px solid var(--border)', borderRadius: 8,
+                    background: 'var(--bg)', cursor: 'pointer', overflow: 'hidden',
+                    position: 'relative',
+                  }}
+                >
+                  {m.type === 'video' ? (
+                    <video src={m.url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} muted playsInline preload="metadata" />
+                  ) : (
+                    <img src={m.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  )}
+                  {m.type === 'video' && (
+                    <span style={{
+                      position: 'absolute', inset: 0,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      color: 'white', fontSize: 26, textShadow: '0 1px 4px rgba(0,0,0,0.7)',
+                      pointerEvents: 'none',
+                    }}>▶</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      {lightbox && (
+        <div
+          onClick={() => setLightbox(null)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 1000,
+            background: 'rgba(0,0,0,0.92)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12,
+          }}
+        >
+          {lightbox.type === 'video' ? (
+            <video src={lightbox.url} controls autoPlay playsInline
+              style={{ maxWidth: '100%', maxHeight: '100%' }}
+              onClick={e => e.stopPropagation()} />
+          ) : (
+            <img src={lightbox.url} alt=""
+              style={{ maxWidth: '100%', maxHeight: '100%' }}
+              onClick={e => e.stopPropagation()} />
+          )}
+          <button onClick={() => setLightbox(null)} style={{
+            position: 'absolute', top: 16, right: 16,
+            width: 36, height: 36, padding: 0, lineHeight: 1,
+            background: 'rgba(0,0,0,0.6)', color: 'white',
+            border: 'none', borderRadius: '50%',
+            fontSize: 22, cursor: 'pointer',
+          }}>×</button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function LiveScoreboard({ data, flashHole }) {
   const [expanded, setExpanded] = React.useState(true);
