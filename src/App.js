@@ -970,7 +970,7 @@ function HoleCard({ hole, onChange, isManual, roundId }) {
 // ============================================================
 // SETUP SCREEN
 // ============================================================
-function SetupScreen({ onStart, preloadCourseName, customCourses, onSaveCustomCourse, onDeleteCustomCourse, onOpenTournamentCard }) {
+function SetupScreen({ onStart, preloadCourseName, customCourses, onSaveCustomCourse, onDeleteCustomCourse }) {
   const playerName = 'Grady';
   const [roundType, setRoundType] = React.useState('practice');
   const [courseSearch, setCourseSearch] = React.useState('');
@@ -1082,24 +1082,6 @@ function SetupScreen({ onStart, preloadCourseName, customCourses, onSaveCustomCo
 
   return (
     <div className="screen screen-setup">
-      {onOpenTournamentCard && (
-        <button
-          onClick={onOpenTournamentCard}
-          style={{
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            width: '100%', padding: '12px 16px', marginBottom: 14,
-            background: 'var(--gold)', color: '#111',
-            border: 'none', borderRadius: 'var(--radius)',
-            fontWeight: 700, fontSize: '0.98rem',
-            cursor: 'pointer', textAlign: 'left',
-            boxShadow: '0 2px 6px rgba(184, 145, 77, 0.3)',
-          }}>
-          <span>📋 Tournament Card</span>
-          <span style={{ fontSize: '0.76rem', fontWeight: 600, opacity: 0.85 }}>
-            Pre-round reference →
-          </span>
-        </button>
-      )}
       <h2 style={{ marginBottom: 14 }}>Enter Round</h2>
 
       <div className="form-group">
@@ -4151,16 +4133,13 @@ function App() {
       )}
 
       {screen === 'setup' && (
-        <>
-          <SetupScreen
-            onStart={handleSetupStart}
-            preloadCourseName={preloadCourse}
-            customCourses={customCourses}
-            onSaveCustomCourse={handleSaveCustomCourse}
-            onDeleteCustomCourse={handleDeleteCustomCourse}
-            onOpenTournamentCard={() => setScreen('tournamentCard')}
-          />
-        </>
+        <SetupScreen
+          onStart={handleSetupStart}
+          preloadCourseName={preloadCourse}
+          customCourses={customCourses}
+          onSaveCustomCourse={handleSaveCustomCourse}
+          onDeleteCustomCourse={handleDeleteCustomCourse}
+        />
       )}
       {screen === 'teeSelect' && pendingSetup && (
         <TeeSelectScreen
