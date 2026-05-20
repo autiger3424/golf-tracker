@@ -1338,3 +1338,10 @@ h3 { font-size: 1rem; font-weight: 600; }
   line-height: 1.25;
 }
 
+/* Internal "← Back" buttons baked into individual screens are redundant
+   when the shell header provides a back arrow. Hide them in default
+   (hub) mode; legacy mode still shows them since it has no shell back. */
+body:not(.legacy-nav) .legacy-back-btn {
+  display: none;
+}
+

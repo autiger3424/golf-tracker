@@ -112,6 +112,7 @@ async function shareAsImage(nodeRef) {
 function HeaderBack({ onBack }) {
   return (
     <button onClick={onBack}
+      className="legacy-back-btn"
       style={{
         background: 'transparent', border: '1.5px solid #1a1a1a',
         color: '#1a1a1a', borderRadius: 14, padding: '6px 14px',
