@@ -1242,7 +1242,7 @@ function TeeSelectScreen({ course, onSelectTee, onBack, onRenameCourse }) {
 
   return (
     <div className="screen">
-      <button className="btn btn-secondary btn-sm" style={{ marginBottom: 16, width: 'auto' }} onClick={onBack}>
+      <button className="btn btn-secondary btn-sm legacy-back-btn" style={{ marginBottom: 16, width: 'auto' }} onClick={onBack}>
         ← Back
       </button>
       <div style={{ marginBottom: 20 }}>
@@ -2233,14 +2233,14 @@ function AnalysisScreen({ round, onSave, onNewRound, saved, onBack }) {
     return (
       <div className="screen">
         {onBack && (
-          <button className="btn btn-secondary btn-sm" style={{ marginBottom: 12 }} onClick={onBack}>
+          <button className="btn btn-secondary btn-sm legacy-back-btn" style={{ marginBottom: 12 }} onClick={onBack}>
             ← Back to Analytics
           </button>
         )}
         <div className="empty-state">
           <div className="empty-state-text">No holes scored yet.</div>
         </div>
-        <button className="btn btn-secondary" style={{ marginTop: 16 }} onClick={onBack || onNewRound}>← Back</button>
+        <button className="btn btn-secondary legacy-back-btn" style={{ marginTop: 16 }} onClick={onBack || onNewRound}>← Back</button>
       </div>
     );
   }
@@ -2260,7 +2260,7 @@ function AnalysisScreen({ round, onSave, onNewRound, saved, onBack }) {
   return (
     <div className="screen">
       {onBack && (
-        <button className="btn btn-secondary btn-sm" style={{ marginBottom: 10 }} onClick={onBack}>
+        <button className="btn btn-secondary btn-sm legacy-back-btn" style={{ marginBottom: 10 }} onClick={onBack}>
           ← Back to Analytics
         </button>
       )}
