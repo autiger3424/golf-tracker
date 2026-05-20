@@ -6,6 +6,7 @@ import {
 import BagSummary from './BagSummary';
 import ClubDetail from './ClubDetail';
 import ImportFlow from './ImportFlow';
+import TournamentCard from './TournamentCard';
 import { generateSampleSessions } from './sampleData';
 
 // CRA env-var convention. Enable in .env.local with REACT_APP_ENABLE_SAMPLE_DATA=true
@@ -25,7 +26,7 @@ function cleanForFirestore(obj) {
 export default function ClubDataTab() {
   const [shots, setShots] = React.useState([]);     // all shots across all sessions
   const [sessions, setSessions] = React.useState([]); // session metadata docs
-  const [view, setView] = React.useState('bag');    // 'bag' | 'detail' | 'import'
+  const [view, setView] = React.useState('bag');    // 'bag' | 'detail' | 'import' | 'tournamentCard'
   const [selectedClub, setSelectedClub] = React.useState(null);
   const [importBootstrap, setImportBootstrap] = React.useState(null);
   const [saving, setSaving] = React.useState(false);
@@ -228,6 +229,10 @@ export default function ClubDataTab() {
     );
   }
 
+  if (view === 'tournamentCard') {
+    return <TournamentCard onBack={() => setView('bag')} />;
+  }
+
   // Default: bag view
   return (
     <div className="screen">
@@ -255,6 +260,7 @@ export default function ClubDataTab() {
       <BagSummary
         shotsByClub={shotsByClub}
         onSelectClub={(c) => { setSelectedClub(c); setView('detail'); }}
+        onOpenTournamentCard={() => setView('tournamentCard')}
       />
 
       {sessions.length > 0 && (

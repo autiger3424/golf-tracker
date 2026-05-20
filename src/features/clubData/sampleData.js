@@ -51,8 +51,10 @@ const BAG = ['Driver', '3W', '4H', '5i', '6i', '7i', '8i', '9i', 'PW', 'GW', 'SW
 // summary doesn't all look stale immediately.
 function buildSessions(now) {
   const oneDay = 24 * 60 * 60 * 1000;
-  // Days-ago for each session, oldest first
-  const daysAgo = [55, 38, 22, 4];
+  // Days-ago for each session, oldest first.
+  // Oldest > 60d so the 4H-only-from-oldest-session club triggers both the
+  // BagSummary red stale flag (>60d) and the TournamentCard gray-out.
+  const daysAgo = [68, 38, 22, 4];
   return daysAgo.map(d => new Date(now.getTime() - d * oneDay));
 }
 

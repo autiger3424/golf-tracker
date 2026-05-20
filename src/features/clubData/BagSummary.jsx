@@ -94,9 +94,13 @@ function ClubRow({ club, summary, onSelect }) {
 /**
  * BagSummary — View 1, the "pre-tournament reference card".
  *
- * @param {{ shotsByClub: Map<string, StandardShot[]>, onSelectClub: (club: string) => void }} props
+ * @param {{
+ *   shotsByClub: Map<string, StandardShot[]>,
+ *   onSelectClub: (club: string) => void,
+ *   onOpenTournamentCard?: () => void,
+ * }} props
  */
-export default function BagSummary({ shotsByClub, onSelectClub }) {
+export default function BagSummary({ shotsByClub, onSelectClub, onOpenTournamentCard }) {
   const clubs = [...shotsByClub.keys()].sort((a, b) => clubSortIndex(a) - clubSortIndex(b));
 
   if (clubs.length === 0) {
@@ -112,6 +116,24 @@ export default function BagSummary({ shotsByClub, onSelectClub }) {
 
   return (
     <div>
+      {onOpenTournamentCard && (
+        <button
+          onClick={onOpenTournamentCard}
+          style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            width: '100%', padding: '14px 16px', marginBottom: 12,
+            background: 'var(--gold)', color: '#111',
+            border: 'none', borderRadius: 'var(--radius)',
+            fontWeight: 700, fontSize: '1rem',
+            cursor: 'pointer', textAlign: 'left',
+            boxShadow: '0 2px 6px rgba(184, 145, 77, 0.3)',
+          }}>
+          <span>📋 Tournament Card</span>
+          <span style={{ fontSize: '0.78rem', fontWeight: 600, opacity: 0.85 }}>
+            Quick reference →
+          </span>
+        </button>
+      )}
       {clubs.map(club => {
         const all = shotsByClub.get(club) || [];
         const kept = all.filter(s => !s.excluded);

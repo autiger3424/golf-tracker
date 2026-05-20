@@ -4,6 +4,7 @@ import { COURSES } from './courses';
 import PracticeScreen from './PracticeScreen';
 import LiveViewer from './LiveViewer';
 import ClubDataTab from './features/clubData/ClubDataTab';
+import TournamentCard from './features/clubData/TournamentCard';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 // import { useGoogleLogin } from '@react-oauth/google'; // archived with Google Calendar
 import { GOOGLE_CLIENT_ID } from './config';
@@ -685,7 +686,7 @@ function HoleCard({ hole, onChange, isManual, roundId }) {
 // ============================================================
 // SETUP SCREEN
 // ============================================================
-function SetupScreen({ onStart, preloadCourseName, customCourses, onSaveCustomCourse, onDeleteCustomCourse }) {
+function SetupScreen({ onStart, preloadCourseName, customCourses, onSaveCustomCourse, onDeleteCustomCourse, onOpenTournamentCard }) {
   const playerName = 'Grady';
   const [roundType, setRoundType] = React.useState('practice');
   const [courseSearch, setCourseSearch] = React.useState('');
@@ -797,6 +798,24 @@ function SetupScreen({ onStart, preloadCourseName, customCourses, onSaveCustomCo
 
   return (
     <div className="screen screen-setup">
+      {onOpenTournamentCard && (
+        <button
+          onClick={onOpenTournamentCard}
+          style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            width: '100%', padding: '12px 16px', marginBottom: 14,
+            background: 'var(--gold)', color: '#111',
+            border: 'none', borderRadius: 'var(--radius)',
+            fontWeight: 700, fontSize: '0.98rem',
+            cursor: 'pointer', textAlign: 'left',
+            boxShadow: '0 2px 6px rgba(184, 145, 77, 0.3)',
+          }}>
+          <span>📋 Tournament Card</span>
+          <span style={{ fontSize: '0.76rem', fontWeight: 600, opacity: 0.85 }}>
+            Pre-round reference →
+          </span>
+        </button>
+      )}
       <h2 style={{ marginBottom: 14 }}>New Round</h2>
 
       <div className="form-group">
@@ -3765,16 +3784,18 @@ function App() {
         </div>
       </div>
 
-      <div className="nav-tabs">
-        {navItems.map(item => (
-          <button key={item.key}
-            className={'nav-tab' + (activeNav === item.key ? ' active' : '')}
-            disabled={item.disabled}
-            onClick={() => handleNavClick(item.key)}>
-            {item.label}
-          </button>
-        ))}
-      </div>
+      {screen !== 'tournamentCard' && (
+        <div className="nav-tabs">
+          {navItems.map(item => (
+            <button key={item.key}
+              className={'nav-tab' + (activeNav === item.key ? ' active' : '')}
+              disabled={item.disabled}
+              onClick={() => handleNavClick(item.key)}>
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {screen === 'setup' && (
         <>
@@ -3784,6 +3805,7 @@ function App() {
             customCourses={customCourses}
             onSaveCustomCourse={handleSaveCustomCourse}
             onDeleteCustomCourse={handleDeleteCustomCourse}
+            onOpenTournamentCard={() => setScreen('tournamentCard')}
           />
         </>
       )}
@@ -3857,6 +3879,9 @@ function App() {
       )}
       {screen === 'clubData' && (
         <ClubDataTab />
+      )}
+      {screen === 'tournamentCard' && (
+        <TournamentCard onBack={() => setScreen('setup')} />
       )}
 
       {/* Global practice timer banner — visible on ALL tabs when timer runs */}
