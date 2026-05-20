@@ -13,6 +13,298 @@ import { collection, doc, setDoc, deleteDoc, onSnapshot, getDoc, getDocs } from 
 import { ref as storageRef, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
 
 // ============================================================
+// NAVIGATION / ROUTING
+// ============================================================
+// Stable URL hash for every screen, so deep links work.
+// The home page is the default ('' or '/'). Sub-screens get their own slug.
+const SCREEN_HASHES = {
+  home: '/',
+  setup: '/enter-round',
+  teeSelect: '/tee-select',
+  round: '/round',
+  analysis: '/analysis',
+  history: '/analytics',
+  historyAnalysis: '/analytics/round',
+  editRound: '/analytics/edit',
+  calendar: '/calendar',
+  practice: '/practice',
+  clubData: '/club-data',
+  livescoring: '/live-scoring',
+  tournamentCard: '/tournament-card',
+  settings: '/settings',
+};
+const HASH_TO_SCREEN = Object.fromEntries(
+  Object.entries(SCREEN_HASHES).map(([screen, hash]) => [hash, screen])
+);
+
+// Parent screen for the "back" button on each non-home screen.
+const PARENT_SCREEN = {
+  setup: 'home',
+  teeSelect: 'setup',
+  round: 'home',
+  analysis: 'round',
+  history: 'home',
+  historyAnalysis: 'history',
+  editRound: 'history',
+  calendar: 'home',
+  practice: 'home',
+  clubData: 'home',
+  livescoring: 'home',
+  tournamentCard: 'home',
+  settings: 'home',
+};
+
+// Human-readable title shown in the shell header for non-home screens.
+const SCREEN_TITLES = {
+  setup: 'Enter Round',
+  teeSelect: 'Select Tee',
+  round: 'Round',
+  analysis: 'Round Analysis',
+  history: 'Analytics',
+  historyAnalysis: 'Round Detail',
+  editRound: 'Edit Round',
+  calendar: 'Schedule',
+  practice: 'Practice',
+  clubData: 'Club Data',
+  livescoring: 'Live Scoring',
+  tournamentCard: 'Tournament Card',
+  settings: 'Settings',
+};
+
+function getInitialScreen() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('legacy') === 'true') return 'setup';
+  const path = (window.location.hash || '').replace(/^#/, '');
+  // Match longest first so '/analytics/round' beats '/analytics'.
+  const hash = HASH_TO_SCREEN[path];
+  if (hash) return hash;
+  return 'home';
+}
+
+function setHashFromScreen(screen) {
+  const target = SCREEN_HASHES[screen];
+  if (!target) return;
+  const current = (window.location.hash || '').replace(/^#/, '');
+  if (current === target) return;
+  // Use replaceState so the URL stays clean without bloating browser history.
+  // (Live viewer hash '#/live/CODE' is handled outside this routing table.)
+  window.history.replaceState(null, '', target === '/' ? window.location.pathname + window.location.search : '#' + target);
+}
+
+function isLegacyMode() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('legacy') === 'true';
+}
+
+// ============================================================
+// ICONS ─ Inline line-style SVGs (Lucide-style)
+// ============================================================
+const Icon = {
+  Trophy: (p) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...p}>
+      <path d="M6 4h12v3a6 6 0 1 1-12 0V4z" />
+      <path d="M6 6H3a2 2 0 0 0 0 4h3" />
+      <path d="M18 6h3a2 2 0 0 1 0 4h-3" />
+      <path d="M9 19h6" />
+      <path d="M12 14v5" />
+    </svg>
+  ),
+  Plus: (p) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...p}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 8v8M8 12h8" />
+    </svg>
+  ),
+  Target: (p) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...p}>
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="12" cy="12" r="5" />
+      <circle cx="12" cy="12" r="1.5" fill="currentColor" />
+    </svg>
+  ),
+  Activity: (p) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...p}>
+      <path d="M3 12h3l3-8 4 16 3-8h5" />
+    </svg>
+  ),
+  Flag: (p) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...p}>
+      <path d="M5 21V4" />
+      <path d="M5 4h11l-2 4 2 4H5" />
+    </svg>
+  ),
+  Radio: (p) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...p}>
+      <circle cx="12" cy="12" r="2" />
+      <path d="M16.24 7.76a6 6 0 0 1 0 8.48" />
+      <path d="M7.76 16.24a6 6 0 0 1 0-8.48" />
+      <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+      <path d="M4.93 19.07a10 10 0 0 1 0-14.14" />
+    </svg>
+  ),
+  Settings: (p) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...p}>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.04 1.56V21a2 2 0 1 1-4 0v-.08a1.7 1.7 0 0 0-1.11-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06A2 2 0 1 1 4.13 16.93l.06-.06A1.7 1.7 0 0 0 4.53 15a1.7 1.7 0 0 0-1.56-1.04H2.91a2 2 0 1 1 0-4h.08A1.7 1.7 0 0 0 4.53 8.85a1.7 1.7 0 0 0-.34-1.87l-.06-.06A2 2 0 1 1 6.96 4.09l.06.06A1.7 1.7 0 0 0 8.85 4.49 1.7 1.7 0 0 0 9.89 2.93V2.85a2 2 0 1 1 4 0v.08a1.7 1.7 0 0 0 1.04 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87 1.7 1.7 0 0 0 1.56 1.04H21a2 2 0 1 1 0 4h-.08a1.7 1.7 0 0 0-1.52 1.11z" />
+    </svg>
+  ),
+  ArrowLeft: (p) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...p}>
+      <path d="M19 12H5" />
+      <path d="M12 19l-7-7 7-7" />
+    </svg>
+  ),
+  Home: (p) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...p}>
+      <path d="M3 11l9-7 9 7v9a2 2 0 0 1-2 2h-4v-6h-6v6H5a2 2 0 0 1-2-2v-9z" />
+    </svg>
+  ),
+  Calendar: (p) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...p}>
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M3 10h18M8 3v4M16 3v4" />
+    </svg>
+  ),
+};
+
+// ============================================================
+// SHELL HEADER ─ shared chrome across home + sub-screens
+// ============================================================
+function AppShellHeader({ screen, onBack, onHome, onSettings }) {
+  if (screen === 'home') {
+    return (
+      <header className="app-shell-header">
+        <div className="brand">Grady<span className="accent"> · </span>GolfTrack</div>
+        <button className="icon-btn" onClick={onSettings} aria-label="Settings">
+          <Icon.Settings width={20} height={20} />
+        </button>
+      </header>
+    );
+  }
+  const title = SCREEN_TITLES[screen] || '';
+  return (
+    <header className="app-shell-header">
+      <button className="icon-btn" onClick={onBack} aria-label="Back">
+        <Icon.ArrowLeft width={20} height={20} />
+      </button>
+      <div className="screen-title">{title}</div>
+      <button className="icon-btn" onClick={onHome} aria-label="Home">
+        <Icon.Home width={20} height={20} />
+      </button>
+    </header>
+  );
+}
+
+// ============================================================
+// HOME HUB ─ tile grid landing page
+// ============================================================
+function HomeHub({ onNavigate }) {
+  const tiles = [
+    { key: 'tournamentCard', label: 'Tournament Card', icon: Icon.Trophy },
+    { key: 'setup',          label: 'Enter Round',     icon: Icon.Plus },
+    { key: 'practice',       label: 'Practice',        icon: Icon.Target },
+    { key: 'history',        label: 'Analytics',       icon: Icon.Activity },
+    { key: 'clubData',       label: 'Club Data',       icon: Icon.Flag },
+    { key: 'livescoring',    label: 'Live Scoring',    icon: Icon.Radio },
+  ];
+  return (
+    <div className="home-hub">
+      <div className="home-hub-grid">
+        {tiles.map(t => {
+          const IconComp = t.icon;
+          return (
+            <button key={t.key} className="home-tile" onClick={() => onNavigate(t.key)}>
+              <div className="home-tile-icon"><IconComp /></div>
+              <div className="home-tile-name">{t.label}</div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// SETTINGS SCREEN
+// ============================================================
+function SettingsScreen({ rounds, onOpenCalendar }) {
+  return (
+    <div className="screen">
+      <h2 style={{ marginBottom: 14 }}>Settings</h2>
+      <div className="card">
+        <div className="card-title">Your data</div>
+        <div style={{ fontSize: '0.9rem', color: 'var(--text-dim)' }}>
+          {rounds.length} round{rounds.length !== 1 ? 's' : ''} saved
+        </div>
+      </div>
+      <div className="card">
+        <div className="card-title">Schedule</div>
+        <p style={{ fontSize: '0.88rem', color: 'var(--text-dim)', marginBottom: 12 }}>
+          View upcoming tournaments and link calendar events to new rounds.
+        </p>
+        <button className="btn btn-secondary" onClick={onOpenCalendar} style={{ width: 'auto' }}>
+          Open Schedule →
+        </button>
+      </div>
+      <div className="card">
+        <div className="card-title">About</div>
+        <div style={{ fontSize: '0.85rem', color: 'var(--text-dim)', lineHeight: 1.6 }}>
+          Grady GolfTrack &middot; private build
+        </div>
+        <div style={{ marginTop: 10, fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+          Need the old tab layout? Append <code>?legacy=true</code> to the URL.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// LIVE SCORING SCREEN
+// ============================================================
+function LiveScoringScreen() {
+  const [code, setCode] = React.useState('');
+  function handleWatch() {
+    const clean = code.trim().toUpperCase().replace(/\s+/g, '');
+    if (clean) window.location.hash = '#/live/' + clean;
+  }
+  return (
+    <div className="screen">
+      <h2 style={{ marginBottom: 14 }}>Live Scoring</h2>
+      <div className="card">
+        <div className="card-title">Watch a Live Round</div>
+        <div style={{ fontSize: '0.86rem', color: 'var(--text-dim)', marginBottom: 14 }}>
+          Enter the code shared by the player to follow their round in real time.
+        </div>
+        <input
+          className="form-input"
+          placeholder="e.g. GRADY-APR8-X4K2"
+          value={code}
+          onChange={e => setCode(e.target.value.toUpperCase())}
+          onKeyDown={e => e.key === 'Enter' && handleWatch()}
+          style={{ width: '100%', fontSize: 18, fontFamily: 'monospace', letterSpacing: 2, marginBottom: 12, textAlign: 'center', fontWeight: 700 }}
+        />
+        <button
+          className="btn btn-primary"
+          onClick={handleWatch}
+          disabled={!code.trim()}
+          style={{ width: '100%', minHeight: 50, fontSize: 16, fontWeight: 700 }}
+        >
+          Watch Live →
+        </button>
+      </div>
+      <div className="card">
+        <div className="card-title">Broadcast your round</div>
+        <div style={{ fontSize: '0.86rem', color: 'var(--text-dim)', lineHeight: 1.55 }}>
+          Start a new round from <strong>Enter Round</strong>, then tap <strong>Go Live</strong> on the
+          round screen to publish a code anyone can watch.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // HELPERS
 // ============================================================
 function genId() {
@@ -816,7 +1108,7 @@ function SetupScreen({ onStart, preloadCourseName, customCourses, onSaveCustomCo
           </span>
         </button>
       )}
-      <h2 style={{ marginBottom: 14 }}>New Round</h2>
+      <h2 style={{ marginBottom: 14 }}>Enter Round</h2>
 
       <div className="form-group">
         <label className="form-label">Round Type</label>
@@ -1950,7 +2242,7 @@ function AnalysisScreen({ round, onSave, onNewRound, saved, onBack }) {
       <div className="screen">
         {onBack && (
           <button className="btn btn-secondary btn-sm" style={{ marginBottom: 12 }} onClick={onBack}>
-            ← Back to History
+            ← Back to Analytics
           </button>
         )}
         <div className="empty-state">
@@ -1977,7 +2269,7 @@ function AnalysisScreen({ round, onSave, onNewRound, saved, onBack }) {
     <div className="screen">
       {onBack && (
         <button className="btn btn-secondary btn-sm" style={{ marginBottom: 10 }} onClick={onBack}>
-          ← Back to History
+          ← Back to Analytics
         </button>
       )}
       <h2 style={{ marginBottom: 14 }}>Round Analysis</h2>
@@ -2880,7 +3172,7 @@ function HistoryScreen({ rounds, onViewRound, onEdit, onDelete, onRecover }) {
   return (
     <div className="screen">
       <div className="section-header" style={{ marginBottom: 14 }}>
-        <h2>Round History</h2>
+        <h2>Analytics</h2>
         <span className="badge">{filtered.length}</span>
       </div>
 
@@ -3270,7 +3562,8 @@ function GlobalTimerBanner({ timer, onGoToPractice }) {
 // MAIN APP
 // ============================================================
 function App() {
-  const [screen, setScreen] = React.useState('setup');
+  const [legacyMode] = React.useState(isLegacyMode);
+  const [screen, setScreen] = React.useState(getInitialScreen);
   const [rounds, setRounds] = React.useState(() => {
     try { return JSON.parse(localStorage.getItem('golf_rounds') || '[]'); } catch { return []; }
   });
@@ -3753,12 +4046,12 @@ function App() {
     setScreen('setup');
   };
 
-  // Nav tabs config
+  // Legacy nav tabs config — only used when ?legacy=true
   const navItems = [
     { key: 'setup', label: '⛳ New' },
     { key: 'round', label: '📋 Round', disabled: !currentRound },
     { key: 'analysis', label: '📊 Analysis', disabled: !currentRound },
-    { key: 'history', label: '📁 History' },
+    { key: 'history', label: '📊 Analytics' },
     { key: 'calendar', label: '📅 Cal' },
     { key: 'practice', label: '🏌️‍♂️ Practice' },
     { key: 'clubData', label: '🎯 Club Data' },
@@ -3775,26 +4068,94 @@ function App() {
     : screen === 'editRound' ? 'history'
     : screen;
 
+  // Hub navigation handlers ─────────────────────────────────────
+  const goHome = () => { setHistoryRound(null); setEditingRound(null); setScreen('home'); };
+  const goBack = () => {
+    const parent = PARENT_SCREEN[screen] || 'home';
+    if (screen === 'historyAnalysis' || screen === 'editRound') {
+      setHistoryRound(null);
+      setEditingRound(null);
+    }
+    setScreen(parent);
+  };
+  const goSettings = () => setScreen('settings');
+  const goHub = (key) => {
+    if ((key === 'round' || key === 'analysis') && !currentRound) {
+      // Should not be reachable from the hub, but guard anyway.
+      return;
+    }
+    setHistoryRound(null);
+    setScreen(key);
+  };
+
+  // ── Keep URL hash in sync with the active screen ────────────
+  React.useEffect(() => {
+    if (legacyMode) return;
+    setHashFromScreen(screen);
+  }, [screen, legacyMode]);
+
+  // ── Respond to browser back/forward (hashchange) ────────────
+  React.useEffect(() => {
+    if (legacyMode) return;
+    const onHashChange = () => {
+      // Ignore the live-viewer hash; that's handled by AppWrapper.
+      const path = (window.location.hash || '').replace(/^#/, '');
+      if (path.startsWith('/live/')) return;
+      const next = HASH_TO_SCREEN[path] || 'home';
+      setScreen(prev => (prev === next ? prev : next));
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, [legacyMode]);
+
+  // ── Tag <body> so legacy mode can be styled distinctly if needed
+  React.useEffect(() => {
+    if (legacyMode) document.body.classList.add('legacy-nav');
+    else document.body.classList.remove('legacy-nav');
+  }, [legacyMode]);
+
   return (
     <div>
-      <div className="app-header">
-        <div className="logo">Grady <span>GolfTrack</span></div>
-        <div style={{ fontSize: '0.78rem', color: 'rgba(240, 236, 224, 0.7)' }}>
-          {rounds.length} round{rounds.length !== 1 ? 's' : ''}
-        </div>
-      </div>
+      {legacyMode ? (
+        <>
+          <div className="app-header">
+            <div className="logo">Grady <span>GolfTrack</span></div>
+            <div style={{ fontSize: '0.78rem', color: 'rgba(240, 236, 224, 0.7)' }}>
+              {rounds.length} round{rounds.length !== 1 ? 's' : ''}
+            </div>
+          </div>
+          {screen !== 'tournamentCard' && (
+            <div className="nav-tabs">
+              {navItems.map(item => (
+                <button key={item.key}
+                  className={'nav-tab' + (activeNav === item.key ? ' active' : '')}
+                  disabled={item.disabled}
+                  onClick={() => handleNavClick(item.key)}>
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      ) : (
+        <AppShellHeader
+          screen={screen}
+          onBack={goBack}
+          onHome={goHome}
+          onSettings={goSettings}
+        />
+      )}
 
-      {screen !== 'tournamentCard' && (
-        <div className="nav-tabs">
-          {navItems.map(item => (
-            <button key={item.key}
-              className={'nav-tab' + (activeNav === item.key ? ' active' : '')}
-              disabled={item.disabled}
-              onClick={() => handleNavClick(item.key)}>
-              {item.label}
-            </button>
-          ))}
-        </div>
+      {screen === 'home' && !legacyMode && (
+        <HomeHub onNavigate={goHub} />
+      )}
+
+      {screen === 'settings' && !legacyMode && (
+        <SettingsScreen rounds={rounds} onOpenCalendar={() => setScreen('calendar')} />
+      )}
+
+      {screen === 'livescoring' && !legacyMode && (
+        <LiveScoringScreen />
       )}
 
       {screen === 'setup' && (
@@ -3881,7 +4242,7 @@ function App() {
         <ClubDataTab />
       )}
       {screen === 'tournamentCard' && (
-        <TournamentCard onBack={() => setScreen('setup')} />
+        <TournamentCard onBack={() => setScreen(legacyMode ? 'setup' : 'home')} />
       )}
 
       {/* Global practice timer banner — visible on ALL tabs when timer runs */}
