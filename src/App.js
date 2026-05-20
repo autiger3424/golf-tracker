@@ -3,6 +3,7 @@ import './App.css';
 import { COURSES } from './courses';
 import PracticeScreen from './PracticeScreen';
 import LiveViewer from './LiveViewer';
+import ClubDataTab from './features/clubData/ClubDataTab';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 // import { useGoogleLogin } from '@react-oauth/google'; // archived with Google Calendar
 import { GOOGLE_CLIENT_ID } from './config';
@@ -3741,6 +3742,7 @@ function App() {
     { key: 'history', label: '📁 History' },
     { key: 'calendar', label: '📅 Cal' },
     { key: 'practice', label: '🏌️‍♂️ Practice' },
+    { key: 'clubData', label: '🎯 Club Data' },
   ];
 
   const handleNavClick = (key) => {
@@ -3852,6 +3854,9 @@ function App() {
       )}
       {screen === 'practice' && (
         <PracticeScreen onTimerChange={setPracticeTimer} />
+      )}
+      {screen === 'clubData' && (
+        <ClubDataTab />
       )}
 
       {/* Global practice timer banner — visible on ALL tabs when timer runs */}
