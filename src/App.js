@@ -206,6 +206,7 @@ function HomeHub({ onNavigate }) {
     { key: 'history',        label: 'Analytics',       icon: Icon.Activity },
     { key: 'clubData',       label: 'Club Data',       icon: Icon.Flag },
     { key: 'livescoring',    label: 'Live Scoring',    icon: Icon.Radio },
+    { key: 'calendar',       label: 'Schedule',        icon: Icon.Calendar },
   ];
   return (
     <div className="home-hub">
@@ -227,7 +228,7 @@ function HomeHub({ onNavigate }) {
 // ============================================================
 // SETTINGS SCREEN
 // ============================================================
-function SettingsScreen({ rounds, onOpenCalendar }) {
+function SettingsScreen({ rounds }) {
   return (
     <div className="screen">
       <h2 style={{ marginBottom: 14 }}>Settings</h2>
@@ -236,15 +237,6 @@ function SettingsScreen({ rounds, onOpenCalendar }) {
         <div style={{ fontSize: '0.9rem', color: 'var(--text-dim)' }}>
           {rounds.length} round{rounds.length !== 1 ? 's' : ''} saved
         </div>
-      </div>
-      <div className="card">
-        <div className="card-title">Schedule</div>
-        <p style={{ fontSize: '0.88rem', color: 'var(--text-dim)', marginBottom: 12 }}>
-          View upcoming tournaments and link calendar events to new rounds.
-        </p>
-        <button className="btn btn-secondary" onClick={onOpenCalendar} style={{ width: 'auto' }}>
-          Open Schedule →
-        </button>
       </div>
       <div className="card">
         <div className="card-title">About</div>
@@ -4151,7 +4143,7 @@ function App() {
       )}
 
       {screen === 'settings' && !legacyMode && (
-        <SettingsScreen rounds={rounds} onOpenCalendar={() => setScreen('calendar')} />
+        <SettingsScreen rounds={rounds} />
       )}
 
       {screen === 'livescoring' && !legacyMode && (
