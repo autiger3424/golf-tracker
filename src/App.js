@@ -804,14 +804,31 @@ function MediaLightbox({ item, onClose }) {
 }
 
 // ============================================================
-function HoleCard({ hole, onChange, isManual, roundId }) {
-  const [expanded, setExpanded] = React.useState(false);
+function HoleCard({
+  hole,
+  onChange,
+  isManual,
+  roundId,
+  // Controlled expansion — RoundScreen tracks which hole is open so per-hole
+  // Save can collapse this one and expand the next.
+  expanded,
+  onToggle,
+  onSaveAndAdvance,
+  hasNext,
+  // Inline opponents (rolls into the existing top scorecard structure)
+  opponents = [],
+  holeIndex,
+  onAddOpponent,
+  onRemoveOpponent,
+  onUpdateOpponent,
+  onUpdateOpponentScore,
+}) {
   const scoreClass = holeScoreClass(hole.score, hole.par);
   const diff = hole.score !== '' && hole.score !== null ? parseInt(hole.score) - hole.par : null;
 
   return (
     <div className={`hole-card${expanded ? ' expanded' : ''}`}>
-      <div className="hole-card-header" onClick={() => setExpanded(e => !e)}>
+      <div className="hole-card-header" onClick={() => onToggle && onToggle()}>
         <div className="hole-num">{hole.number}</div>
         <div className="hole-info">
           <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Hole {hole.number}</span>
@@ -961,6 +978,87 @@ function HoleCard({ hole, onChange, isManual, roundId }) {
               placeholder="Optional notes…"
               onChange={e => onChange({ notes: e.target.value })} />
           </div>
+
+          {/* ── Per-hole opponents ────────────────────────────────────
+              Adding an opponent here also adds them to round.opponents —
+              their name + scores roll up into the existing top scorecard.
+              On any other hole, the same opponent's name is already there
+              with a stepper for that hole's score. */}
+          {onAddOpponent && (
+            <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+              <label className="form-label" style={{ marginBottom: 8 }}>Opponents on this hole</label>
+              {opponents.length === 0 && (
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 8 }}>
+                  Add an opponent and their name appears on every hole.
+                </div>
+              )}
+              {opponents.map((o) => {
+                const score = o.scores?.[holeIndex] ?? '';
+                return (
+                  <div key={o.id} style={{
+                    display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8,
+                  }}>
+                    <input
+                      type="text"
+                      value={o.name || ''}
+                      placeholder="Opponent name"
+                      maxLength={30}
+                      onChange={e => onUpdateOpponent(o.id, { name: e.target.value })}
+                      style={{
+                        flex: 1, minWidth: 0,
+                        padding: '8px 10px', borderRadius: 8,
+                        border: '1px solid var(--border)',
+                        background: 'var(--bg)', color: 'var(--text)',
+                        fontWeight: 600,
+                      }}
+                    />
+                    <NumberStepper
+                      value={score}
+                      min={1}
+                      max={20}
+                      defaultVal={hole.par}
+                      onChange={(v) => onUpdateOpponentScore(o.id, holeIndex, v)}
+                    />
+                    <button
+                      onClick={() => {
+                        if (window.confirm(`Remove ${o.name || 'this opponent'} from the round?`)) {
+                          onRemoveOpponent(o.id);
+                        }
+                      }}
+                      title="Remove opponent"
+                      style={{
+                        flex: '0 0 auto', width: 32, height: 32, padding: 0,
+                        background: 'transparent', border: '1px solid var(--red)',
+                        color: 'var(--red)', borderRadius: 8,
+                        fontSize: 16, fontWeight: 700, cursor: 'pointer', lineHeight: 1,
+                      }}
+                    >×</button>
+                  </div>
+                );
+              })}
+              <button
+                onClick={onAddOpponent}
+                className="btn btn-secondary"
+                style={{ width: '100%', marginTop: 4, padding: '8px 12px', fontSize: '0.88rem' }}
+              >
+                + Add Opponent
+              </button>
+            </div>
+          )}
+
+          {/* ── Save Hole — collapse + advance ─────────────────────── */}
+          {onSaveAndAdvance && (
+            <button
+              onClick={onSaveAndAdvance}
+              className="btn btn-primary"
+              style={{
+                width: '100%', marginTop: 16, padding: '14px',
+                fontSize: '1rem', fontWeight: 700,
+              }}
+            >
+              {hasNext ? `💾 Save & Next Hole` : `💾 Save Hole`}
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -1535,9 +1633,39 @@ function OpponentsPanel({ playerName, opponents, holes, onAdd, onRemove, onUpdat
   );
 }
 
-function RoundScreen({ round, onUpdateHole, onAddOpponent, onRemoveOpponent, onUpdateOpponent, onUpdateOpponentScore, onFinish, onSave, saved, isManual, isLive, liveId, onToggleLive, showSharePanel, onShowShare, onHideShare, liveStatus, liveSyncing }) {
+function RoundScreen({ round, onUpdateHole, onAddOpponent, onRemoveOpponent, onUpdateOpponent, onUpdateOpponentScore, onFinish, onSave, onSaveHole, saved, isManual, isLive, liveId, onToggleLive, showSharePanel, onShowShare, onHideShare, liveStatus, liveSyncing }) {
   const stats = calcStats(round.holes);
   const [copied, setCopied] = React.useState(false);
+
+  // Which hole is currently open. Default: first hole without a score
+  // (matches the user's mental flow — open the app, start scoring).
+  const initialOpen = React.useMemo(() => {
+    const next = round.holes.find(h => h.score === '' || h.score === null || h.score === undefined);
+    return next ? next.number : (round.holes[0]?.number ?? null);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const [expandedHoleNumber, setExpandedHoleNumber] = React.useState(initialOpen);
+  // Scroll to the newly-expanded hole on Save & Next so the user always sees
+  // the active card at the top of the viewport.
+  const holeRefs = React.useRef({});
+  const handleSaveAndAdvance = React.useCallback((holeNumber) => {
+    // Persist this round to Firestore immediately — crash recovery.
+    if (onSaveHole) onSaveHole();
+    const idx = round.holes.findIndex(h => h.number === holeNumber);
+    const nextHole = round.holes[idx + 1];
+    if (nextHole) {
+      setExpandedHoleNumber(nextHole.number);
+      // Wait a frame for layout, then scroll the next card into view
+      requestAnimationFrame(() => {
+        const el = holeRefs.current[nextHole.number];
+        if (el && el.scrollIntoView) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      });
+    } else {
+      // Last hole: collapse all
+      setExpandedHoleNumber(null);
+    }
+  }, [round.holes, onSaveHole]);
 
   const liveUrl = liveId
     ? `${window.location.origin}${window.location.pathname}#/live/${liveId}`
@@ -1694,16 +1822,40 @@ function RoundScreen({ round, onUpdateHole, onAddOpponent, onRemoveOpponent, onU
           onUpdateScore={onUpdateOpponentScore}
         />
         {round.holes.map((hole, i) => (
-          <HoleCard key={hole.number} hole={hole} isManual={isManual} roundId={round.id}
-            onChange={(updates) => onUpdateHole(i, updates)} />
+          <div key={hole.number} ref={el => { holeRefs.current[hole.number] = el; }}>
+            <HoleCard
+              hole={hole}
+              isManual={isManual}
+              roundId={round.id}
+              onChange={(updates) => onUpdateHole(i, updates)}
+              expanded={expandedHoleNumber === hole.number}
+              onToggle={() => setExpandedHoleNumber(prev => prev === hole.number ? null : hole.number)}
+              onSaveAndAdvance={() => handleSaveAndAdvance(hole.number)}
+              hasNext={i < round.holes.length - 1}
+              opponents={round.opponents || []}
+              holeIndex={i}
+              onAddOpponent={onAddOpponent}
+              onRemoveOpponent={onRemoveOpponent}
+              onUpdateOpponent={onUpdateOpponent}
+              onUpdateOpponentScore={onUpdateOpponentScore}
+            />
+          </div>
         ))}
         <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
-          {saved ? (
-            <div className="btn btn-primary" style={{ flex: 1, textAlign: 'center', opacity: 0.8 }}>✓ Saved</div>
-          ) : (
-            <button className="btn btn-primary" style={{ flex: 1 }} onClick={onSave}>💾 Save Round</button>
-          )}
-          <button className="btn btn-gold" style={{ flex: 1 }} onClick={onFinish}>View Analysis →</button>
+          {/* Finish Round — ends live broadcast, navigates to analysis.
+              The live link stays valid for spectators until this is clicked. */}
+          <button
+            className="btn btn-gold"
+            style={{ flex: 1 }}
+            onClick={() => {
+              if (window.confirm('Finish the round? This stops live broadcasting and goes to analysis.')) {
+                if (onSave) onSave();
+                if (onFinish) onFinish();
+              }
+            }}
+          >
+            🏁 Finish Round
+          </button>
         </div>
       </div>
     </div>
@@ -2912,6 +3064,10 @@ function RecoverLiveRounds({ onRecover }) {
     setRecovering(lr.id);
     const newRound = {
       id: 'recovered_' + lr.id + '_' + Date.now(),
+      // Keep the original live broadcast id on the recovered round. When the
+      // user clicks Go Live on this round, handleToggleLive reuses this id
+      // so spectators don't need a fresh link.
+      liveId: lr.id,
       playerName: lr.playerName || 'Grady',
       courseName: lr.courseName || 'Unknown Course',
       courseId: (lr.courseName || 'unknown').toLowerCase().replace(/[^a-z0-9]+/g, '_'),
@@ -2978,7 +3134,7 @@ function RecoverLiveRounds({ onRecover }) {
                   <button className="btn btn-primary btn-sm"
                     disabled={recovering === lr.id}
                     onClick={() => handleRecover(lr)}>
-                    {recovering === lr.id ? '…' : '+ Save'}
+                    {recovering === lr.id ? '…' : 'Resume →'}
                   </button>
                 </div>
               </div>
@@ -3876,9 +4032,17 @@ function App() {
         setDoc(doc(db, 'live_rounds', liveIdRef.current), { isLive: false }, { merge: true }).catch(console.error);
       }
     } else {
-      // Start broadcasting
+      // Start broadcasting.
+      // If this round was recovered from a previous live broadcast it carries
+      // the original live_rounds doc id — reuse it so spectators don't need
+      // a new link. Otherwise mint a fresh id.
       if (!currentRound) return;
-      const newId = generateLiveId(currentRound.playerName, currentRound.date);
+      const newId = currentRound.liveId || generateLiveId(currentRound.playerName, currentRound.date);
+      // Persist the id back onto the round so future toggles also reuse it
+      // (e.g. user goes Live → Stop → Live again should keep the same link).
+      if (!currentRound.liveId) {
+        setCurrentRound(prev => prev ? { ...prev, liveId: newId } : prev);
+      }
       setLiveId(newId);
       liveIdRef.current = newId;
       setIsLive(true);
@@ -3926,6 +4090,25 @@ function App() {
       }
     }
   };
+
+  // Per-hole save — called after every hole's Save & Next.
+  // Persists the round to Firestore immediately so a crash mid-round doesn't
+  // lose progress. Does NOT touch live_rounds.isComplete — the live link
+  // stays valid until the user explicitly clicks Finish Round.
+  const handleSaveHole = React.useCallback(async () => {
+    if (!currentRound) return;
+    if (db) {
+      try { await setDoc(doc(db, 'rounds', currentRound.id), currentRound); }
+      catch (e) { console.error('Save hole failed:', e); }
+    } else {
+      const existing = rounds.find(r => r.id === currentRound.id);
+      const newRounds = existing
+        ? rounds.map(r => r.id === currentRound.id ? currentRound : r)
+        : [currentRound, ...rounds];
+      setRounds(newRounds);
+      saveRoundsToStorage(newRounds);
+    }
+  }, [currentRound, rounds]);
 
   const handleSaveRound = async () => {
     if (db) {
@@ -3991,6 +4174,17 @@ function App() {
       setRounds(newRounds);
       saveRoundsToStorage(newRounds);
     }
+    // Load the recovered round as the current round so the user can
+    // immediately continue scoring. If the round had a previous live id,
+    // it's already attached — clicking Go Live will reuse that link.
+    setCurrentRound(newRound);
+    setRoundSaved(false);
+    setIsLive(false);
+    setLiveId(null);
+    isLiveRef.current = false;
+    liveIdRef.current = null;
+    setHistoryRound(null);
+    setScreen('round');
   };
 
   const handleDeleteRound = async (roundId) => {
@@ -4171,6 +4365,7 @@ function App() {
           onUpdateOpponentScore={handleUpdateOpponentScore}
           onFinish={() => setScreen('analysis')}
           onSave={handleSaveRound}
+          onSaveHole={handleSaveHole}
           saved={roundSaved}
           isManual={currentRound.isManual}
           isLive={isLive}

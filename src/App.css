@@ -4,6 +4,25 @@
   margin: 0;
   padding: 0;
   -webkit-tap-highlight-color: transparent;
+  /* Disable double-tap-to-zoom on all elements — pair with the
+     user-scalable=no viewport meta. Keeps the round screen static. */
+  touch-action: manipulation;
+}
+
+/* iOS Safari auto-zooms when focusing an input with computed font-size < 16px.
+   The viewport meta (maximum-scale=1, user-scalable=no) is the primary fix;
+   this CSS rule covers inputs styled via class names (not inline). Inputs
+   with intentionally-compact inline 12px styling (the opponent score grid)
+   are deliberately exempt — the viewport meta protects them instead. */
+input[type="text"]:not([data-compact]),
+input[type="number"]:not([data-compact]),
+input[type="tel"]:not([data-compact]),
+input[type="search"]:not([data-compact]),
+input[type="email"]:not([data-compact]),
+input[type="url"]:not([data-compact]),
+textarea:not([data-compact]),
+select:not([data-compact]) {
+  font-size: max(16px, 1em);
 }
 
 :root {
