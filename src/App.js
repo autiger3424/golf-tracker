@@ -1012,13 +1012,58 @@ function HoleCard({
                         fontWeight: 600,
                       }}
                     />
-                    <NumberStepper
-                      value={score}
-                      min={1}
-                      max={20}
-                      defaultVal={hole.par}
-                      onChange={(v) => onUpdateOpponentScore(o.id, holeIndex, v)}
-                    />
+                    {/* Compact stepper — fixed ~108px so the name input
+                        gets the rest of the row. Default NumberStepper is
+                        width:100% with 44px buttons and would crowd out
+                        the name. */}
+                    {(() => {
+                      const numScore = (score !== '' && score !== null && score !== undefined) ? parseInt(score) : null;
+                      const dec = () => {
+                        if (numScore === null) return;
+                        const next = numScore - 1;
+                        if (next < 1) { onUpdateOpponentScore(o.id, holeIndex, ''); return; }
+                        onUpdateOpponentScore(o.id, holeIndex, String(next));
+                      };
+                      const inc = () => {
+                        if (numScore === null) { onUpdateOpponentScore(o.id, holeIndex, String(hole.par)); return; }
+                        if (numScore >= 20) return;
+                        onUpdateOpponentScore(o.id, holeIndex, String(numScore + 1));
+                      };
+                      return (
+                        <div style={{
+                          display: 'flex', alignItems: 'center', flex: '0 0 auto',
+                          width: 108, height: 36, borderRadius: 8,
+                          border: '1px solid var(--border)', background: 'var(--surface)',
+                          overflow: 'hidden',
+                        }}>
+                          <button
+                            onClick={dec}
+                            style={{
+                              flex: '0 0 32px', height: '100%', padding: 0,
+                              background: 'none', border: 'none',
+                              color: 'var(--accent)', fontSize: '1.25rem', fontWeight: 400,
+                              cursor: 'pointer', lineHeight: 1,
+                            }}
+                          >−</button>
+                          <span style={{
+                            flex: 1, textAlign: 'center', fontWeight: 700,
+                            fontSize: '1rem', color: 'var(--text)', userSelect: 'none',
+                            fontVariantNumeric: 'tabular-nums',
+                          }}>
+                            {numScore !== null ? numScore : '—'}
+                          </span>
+                          <button
+                            onClick={inc}
+                            style={{
+                              flex: '0 0 32px', height: '100%', padding: 0,
+                              background: 'none', border: 'none',
+                              color: 'var(--accent)', fontSize: '1.25rem', fontWeight: 400,
+                              cursor: 'pointer', lineHeight: 1,
+                            }}
+                          >+</button>
+                        </div>
+                      );
+                    })()}
                     <button
                       onClick={() => {
                         if (window.confirm(`Remove ${o.name || 'this opponent'} from the round?`)) {
