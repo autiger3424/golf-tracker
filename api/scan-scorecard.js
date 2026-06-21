@@ -81,6 +81,10 @@ async function tryGeminiModel(model, base64Image, mediaType, apiKey) {
 }
 
 // ── Claude fallback ──────────────────────────────────────────────────────────
+// Model defaults to the current Sonnet alias; override with CLAUDE_FALLBACK_MODEL
+// in Vercel env to swap without a redeploy when Anthropic retires the underlying ID.
+const CLAUDE_MODEL = process.env.CLAUDE_FALLBACK_MODEL || 'claude-sonnet-4-6';
+
 async function tryClaude(base64Image, mediaType) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
@@ -93,7 +97,7 @@ async function tryClaude(base64Image, mediaType) {
       'content-type': 'application/json'
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
+      model: CLAUDE_MODEL,
       max_tokens: 4096,
       messages: [{
         role: 'user',
