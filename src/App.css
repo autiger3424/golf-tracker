@@ -1234,7 +1234,10 @@ h3 { font-size: 1rem; font-weight: 600; }
 .app-shell-header {
   background: var(--hub-bg);
   border-bottom: 1px solid var(--hub-border);
-  padding: 14px 18px;
+  /* env(safe-area-inset-top) pushes the buttons below the iOS notch /
+     Dynamic Island. Without it, the back/home tap targets sit under the
+     status-bar area and are unreachable on iPhone. */
+  padding: calc(14px + env(safe-area-inset-top, 0px)) 18px 14px;
   display: flex;
   align-items: center;
   justify-content: space-between;
