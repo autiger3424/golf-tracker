@@ -2659,6 +2659,9 @@ function EditRoundScreen({ round, onSave, onCancel }) {
   const [roundType, setRoundType] = React.useState(round.roundType);
   const [playerName, setPlayerName] = React.useState(round.playerName || '');
   const [holes, setHoles] = React.useState(round.holes.map(h => ({ ...h })));
+  // HoleCard is a controlled accordion — without these props the body never
+  // renders and hole fields appear locked. Track which hole is open here.
+  const [expandedHoleNumber, setExpandedHoleNumber] = React.useState(null);
 
   const handleHoleChange = (index, updates) => {
     setHoles(prev => {
@@ -2741,6 +2744,8 @@ function EditRoundScreen({ round, onSave, onCancel }) {
         </div>
         {holes.map((hole, i) => (
           <HoleCard key={hole.number} hole={hole} isManual={round.isManual} roundId={round.id}
+            expanded={expandedHoleNumber === hole.number}
+            onToggle={() => setExpandedHoleNumber(prev => prev === hole.number ? null : hole.number)}
             onChange={(updates) => handleHoleChange(i, updates)} />
         ))}
 
