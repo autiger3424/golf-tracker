@@ -887,9 +887,10 @@ function HoleCard({
           <div style={{ marginTop: 12 }}>
             <label className="form-label" style={{ marginBottom: 6 }}>1st Putt Distance</label>
             <select className="putt-length-select"
-              value={hole.firstPuttLength || ''}
-              onChange={e => onChange({ firstPuttLength: e.target.value ? parseInt(e.target.value) : '' })}>
+              value={hole.firstPuttLength ?? ''}
+              onChange={e => onChange({ firstPuttLength: e.target.value === '' ? '' : parseInt(e.target.value) })}>
               <option value="">— not recorded —</option>
+              <option value="0">Chip-in / off-green (0 ft)</option>
               {FIRST_PUTT_OPTIONS.map(ft => (
                 <option key={ft} value={ft}>{ft} ft</option>
               ))}
