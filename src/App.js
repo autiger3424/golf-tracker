@@ -198,6 +198,50 @@ function AppShellHeader({ screen, onBack, onHome, onSettings }) {
 // ============================================================
 // HOME HUB ─ tile grid landing page
 // ============================================================
+function ResumeLiveBanner({ live, onResume, onDismiss }) {
+  const hole = (live.holes || []).filter(h => h.score !== '' && h.score !== null && h.score !== undefined).length;
+  return (
+    <div style={{
+      margin: '20px 20px 0', padding: '14px 16px',
+      background: 'var(--hub-bg-elevated)',
+      border: '1px solid var(--hub-border-strong)',
+      borderRadius: 12,
+      display: 'flex', alignItems: 'center', gap: 12,
+      color: 'var(--hub-text)',
+      fontFamily: 'Geist, -apple-system, BlinkMacSystemFont, Inter, sans-serif',
+    }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{
+          fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.14em',
+          textTransform: 'uppercase', color: 'var(--hub-accent)', marginBottom: 4,
+        }}>
+          Live round in progress
+        </div>
+        <div style={{ fontSize: '0.92rem', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          {live.courseName || 'Untitled course'} · {hole}/18 holes
+        </div>
+        <div style={{ fontSize: '0.74rem', color: 'var(--hub-text-dim)', marginTop: 2 }}>
+          Code: {live.id}
+        </div>
+      </div>
+      <button onClick={onResume} style={{
+        background: 'var(--hub-accent)', color: '#0F1E1A',
+        border: 'none', borderRadius: 10, padding: '10px 16px',
+        fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', flexShrink: 0,
+      }}>
+        Resume
+      </button>
+      <button onClick={onDismiss} aria-label="Dismiss" style={{
+        background: 'transparent', border: 'none',
+        color: 'var(--hub-text-dim)', fontSize: '1.1rem', cursor: 'pointer',
+        padding: '6px 8px', flexShrink: 0,
+      }}>
+        ✕
+      </button>
+    </div>
+  );
+}
+
 function HomeHub({ onNavigate }) {
   const tiles = [
     { key: 'tournamentCard', label: 'Tournament Card', icon: Icon.Trophy },
@@ -519,6 +563,71 @@ function loadCustomCourses() {
 
 function persistCustomCourses(courses) {
   try { localStorage.setItem('golf_custom_courses', JSON.stringify(courses)); } catch {}
+}
+
+// Active-round snapshot — survives iOS killing the tab during a rain delay.
+// Persists currentRound + live state so the user can resume exactly where
+// they left off; the live broadcast resumes against the same liveId so
+// spectators see updates continue on the same shareable link.
+const ACTIVE_ROUND_KEY = 'golf_active_round_v1';
+const ACTIVE_ROUND_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+function saveActiveRoundSnapshot(snap) {
+  try {
+    localStorage.setItem(ACTIVE_ROUND_KEY, JSON.stringify({ ...snap, savedAt: Date.now() }));
+  } catch {}
+}
+
+function loadActiveRoundSnapshot() {
+  try {
+    const raw = localStorage.getItem(ACTIVE_ROUND_KEY);
+    if (!raw) return null;
+    const snap = JSON.parse(raw);
+    if (!snap || !snap.currentRound) return null;
+    if (Date.now() - (snap.savedAt || 0) > ACTIVE_ROUND_TTL_MS) {
+      localStorage.removeItem(ACTIVE_ROUND_KEY);
+      return null;
+    }
+    return snap;
+  } catch { return null; }
+}
+
+function clearActiveRoundSnapshot() {
+  try { localStorage.removeItem(ACTIVE_ROUND_KEY); } catch {}
+}
+
+// Convert a live_rounds Firestore doc into a fresh round we can resume.
+// Mirrors the projection used by RecoverLiveRounds — keeps every per-hole
+// stat field round-trip-safe.
+function makeRoundFromLiveDoc(lr) {
+  return {
+    id: 'recovered_' + lr.id + '_' + Date.now(),
+    liveId: lr.id,
+    playerName: lr.playerName || 'Grady',
+    courseName: lr.courseName || 'Unknown Course',
+    courseId: (lr.courseName || 'unknown').toLowerCase().replace(/[^a-z0-9]+/g, '_'),
+    tee: lr.tee || 'Manual',
+    teeColor: lr.teeColor || 'white',
+    date: lr.startTime || new Date().toISOString(),
+    roundType: lr.roundType || 'practice',
+    isManual: lr.isManual !== undefined ? lr.isManual : true,
+    holes: (lr.holes || []).map(h => ({
+      number: h.number,
+      par: h.par ?? 4,
+      yards: h.yards ?? 0,
+      score: h.score ?? '',
+      putts: h.putts ?? '',
+      firstPuttLength: h.firstPuttLength ?? '',
+      fairwayHit: h.fairwayHit ?? null,
+      fairwayMissDirection: h.fairwayMissDirection ?? null,
+      gir: h.gir ?? null,
+      fairwayBunker: h.fairwayBunker ?? false,
+      greensideBunker: h.greensideBunker ?? false,
+      ob: h.ob ?? false,
+      water: h.water ?? false,
+      notes: h.notes ?? '',
+    })),
+  };
 }
 
 // ============================================================
@@ -3744,32 +3853,89 @@ function GlobalTimerBanner({ timer, onGoToPractice }) {
 // ============================================================
 function App() {
   const [legacyMode] = React.useState(isLegacyMode);
-  const [screen, setScreen] = React.useState(getInitialScreen);
+
+  // Rehydrate an in-progress round if iOS killed the tab mid-play.
+  // Read once on mount — must come before the state declarations that consume it.
+  const initialSnap = React.useMemo(
+    () => (isLegacyMode() ? null : loadActiveRoundSnapshot()),
+    [],
+  );
+
+  const [screen, setScreen] = React.useState(() => {
+    if (isLegacyMode()) return 'setup';
+    const urlScreen = getInitialScreen();
+    // If the URL doesn't pin a specific screen (iOS reloaded to '/') but the
+    // snapshot has an active round, jump back to where the player was.
+    if (initialSnap?.currentRound && urlScreen === 'home') {
+      return initialSnap.screen === 'analysis' ? 'analysis' : 'round';
+    }
+    return urlScreen;
+  });
   const [rounds, setRounds] = React.useState(() => {
     try { return JSON.parse(localStorage.getItem('golf_rounds') || '[]'); } catch { return []; }
   });
   const [customCourses, setCustomCourses] = React.useState(loadCustomCourses);
   const [pendingSetup, setPendingSetup] = React.useState(null);
-  const [currentRound, setCurrentRound] = React.useState(null);
-  const [roundSaved, setRoundSaved] = React.useState(false);
+  const [currentRound, setCurrentRound] = React.useState(() => initialSnap?.currentRound ?? null);
+  const [roundSaved, setRoundSaved] = React.useState(() => initialSnap?.roundSaved ?? false);
   const [historyRound, setHistoryRound] = React.useState(null);
   const [editingRound, setEditingRound] = React.useState(null);
   const [preloadCourse, setPreloadCourse] = React.useState(null);
 
   // ── Live round state ───────────────────────────────────────
-  const [isLive, setIsLive] = React.useState(false);
-  const [liveId, setLiveId] = React.useState(null);
+  const [isLive, setIsLive] = React.useState(() => initialSnap?.isLive ?? false);
+  const [liveId, setLiveId] = React.useState(() => initialSnap?.liveId ?? null);
   const [showSharePanel, setShowSharePanel] = React.useState(false);
   const [liveStatus, setLiveStatus] = React.useState(null); // null | 'ok' | 'error'
   const [liveSyncing, setLiveSyncing] = React.useState(false);
-  const isLiveRef = React.useRef(false);
-  const liveIdRef = React.useRef(null);
+  // Seed refs from the snapshot too — the debounced live-write effect reads
+  // these on the first run, so a stale `false`/`null` would skip the resume.
+  const isLiveRef = React.useRef(initialSnap?.isLive ?? false);
+  const liveIdRef = React.useRef(initialSnap?.liveId ?? null);
   const liveDebounceRef = React.useRef(null);
   React.useEffect(() => { isLiveRef.current = isLive; }, [isLive]);
   React.useEffect(() => { liveIdRef.current = liveId; }, [liveId]);
 
+  // ── Snapshot the active round on every change ─────────────
+  // Survives iOS killing the tab during a rain delay. Clears on handleNewRound.
+  React.useEffect(() => {
+    if (legacyMode) return;
+    if (!currentRound) return;
+    saveActiveRoundSnapshot({ currentRound, isLive, liveId, screen, roundSaved });
+  }, [legacyMode, currentRound, isLive, liveId, screen, roundSaved]);
+
   // ── Practice timer (global banner across tabs) ─────────────
   const [practiceTimer, setPracticeTimer] = React.useState(null);
+
+  // ── Recoverable live round (safety net if localStorage was wiped) ──
+  // On boot with no active round loaded, scan live_rounds for an in-flight
+  // broadcast (isLive=true, updated in the last 24h). Surfaces as a banner
+  // on the home page so the player can resume in one tap.
+  const [recoverableLive, setRecoverableLive] = React.useState(null);
+  const [recoverableLiveDismissed, setRecoverableLiveDismissed] = React.useState(false);
+  React.useEffect(() => {
+    if (legacyMode) return;
+    if (currentRound) return;
+    if (recoverableLiveDismissed) return;
+    if (!db) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const snap = await getDocs(collection(db, 'live_rounds'));
+        const now = Date.now();
+        const candidates = snap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .filter(d => d.isLive && !d.isComplete)
+          .filter(d => {
+            const t = d.lastUpdate || (d.startTime ? new Date(d.startTime).getTime() : 0);
+            return now - t < 24 * 60 * 60 * 1000;
+          })
+          .sort((a, b) => (b.lastUpdate || 0) - (a.lastUpdate || 0));
+        if (!cancelled && candidates.length > 0) setRecoverableLive(candidates[0]);
+      } catch (e) { console.error('Live recovery scan failed:', e); }
+    })();
+    return () => { cancelled = true; };
+  }, [legacyMode, currentRound, recoverableLiveDismissed]);
 
   // ── Firestore real-time rounds listener (shared family db) ─
   React.useEffect(() => {
@@ -4203,6 +4369,7 @@ function App() {
     setShowSharePanel(false);
     isLiveRef.current = false;
     liveIdRef.current = null;
+    clearActiveRoundSnapshot();
     setScreen('setup');
   };
 
@@ -4215,6 +4382,23 @@ function App() {
     setEditingRound(r);
     setHistoryRound(null);
     setScreen('editRound');
+  };
+
+  // Resume an in-flight live round detected by the home-page banner.
+  // Unlike handleRecoverRound (Analytics flow), this preserves isLive +
+  // liveId so the debounced live-write effect picks up immediately and
+  // spectators on the existing link see updates resume — same code, no gap.
+  const handleResumeLive = (lr) => {
+    const round = makeRoundFromLiveDoc(lr);
+    setCurrentRound(round);
+    setRoundSaved(false);
+    setIsLive(true);
+    setLiveId(lr.id);
+    isLiveRef.current = true;
+    liveIdRef.current = lr.id;
+    setRecoverableLive(null);
+    setHistoryRound(null);
+    setScreen('round');
   };
 
   const handleRecoverRound = async (newRound) => {
@@ -4366,7 +4550,16 @@ function App() {
       )}
 
       {screen === 'home' && !legacyMode && (
-        <HomeHub onNavigate={goHub} />
+        <>
+          {recoverableLive && (
+            <ResumeLiveBanner
+              live={recoverableLive}
+              onResume={() => handleResumeLive(recoverableLive)}
+              onDismiss={() => { setRecoverableLive(null); setRecoverableLiveDismissed(true); }}
+            />
+          )}
+          <HomeHub onNavigate={goHub} />
+        </>
       )}
 
       {screen === 'settings' && !legacyMode && (
