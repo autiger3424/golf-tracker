@@ -3371,12 +3371,24 @@ function HistoryScreen({ rounds, onViewRound, onEdit, onDelete, onRecover }) {
     });
   };
 
-  const toggleIncluded = (id) => {
+  const toggleIncluded = (id, anchorEl) => {
+    // The stats cards above the list mount/grow as more rounds get included,
+    // pushing the clicked row down off-screen. Pin the clicked row's
+    // on-screen position by capturing its top before the state change and
+    // scrolling by the delta after layout.
+    const beforeTop = anchorEl?.getBoundingClientRect().top;
     setExcludedIds(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
+    if (anchorEl && beforeTop !== undefined) {
+      requestAnimationFrame(() => {
+        const afterTop = anchorEl.getBoundingClientRect().top;
+        const delta = afterTop - beforeTop;
+        if (delta !== 0) window.scrollBy(0, delta);
+      });
+    }
   };
   const includeAll = () => setExcludedIds(new Set());
   const excludeAll = () => setExcludedIds(new Set(filtered.map(r => r.id)));
@@ -3663,7 +3675,7 @@ function HistoryScreen({ rounds, onViewRound, onEdit, onDelete, onRecover }) {
                                   type="checkbox"
                                   checked={isIncluded}
                                   onClick={e => e.stopPropagation()}
-                                  onChange={() => toggleIncluded(r.id)}
+                                  onChange={e => toggleIncluded(r.id, e.currentTarget.closest('.round-history-item'))}
                                   title={isIncluded ? 'Included in stats · click to exclude' : 'Excluded from stats · click to include'}
                                   className="round-include-checkbox"
                                 />
