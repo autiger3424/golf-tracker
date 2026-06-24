@@ -198,7 +198,7 @@ function AppShellHeader({ screen, onBack, onHome, onSettings }) {
 // ============================================================
 // HOME HUB ─ tile grid landing page
 // ============================================================
-function ResumeLiveBanner({ live, onResume, onDismiss }) {
+function ResumeLiveBanner({ live, onResume, onEnd }) {
   const hole = (live.holes || []).filter(h => h.score !== '' && h.score !== null && h.score !== undefined).length;
   return (
     <div style={{
@@ -206,38 +206,43 @@ function ResumeLiveBanner({ live, onResume, onDismiss }) {
       background: 'var(--hub-bg-elevated)',
       border: '1px solid var(--hub-border-strong)',
       borderRadius: 12,
-      display: 'flex', alignItems: 'center', gap: 12,
       color: 'var(--hub-text)',
       fontFamily: 'Geist, -apple-system, BlinkMacSystemFont, Inter, sans-serif',
     }}>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{
-          fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.14em',
-          textTransform: 'uppercase', color: 'var(--hub-accent)', marginBottom: 4,
-        }}>
-          Live round in progress
-        </div>
-        <div style={{ fontSize: '0.92rem', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {live.courseName || 'Untitled course'} · {hole}/18 holes
-        </div>
-        <div style={{ fontSize: '0.74rem', color: 'var(--hub-text-dim)', marginTop: 2 }}>
-          Code: {live.id}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{
+            fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.14em',
+            textTransform: 'uppercase', color: 'var(--hub-accent)', marginBottom: 4,
+          }}>
+            Live round in progress
+          </div>
+          <div style={{ fontSize: '0.92rem', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {live.courseName || 'Untitled course'} · {hole}/18 holes
+          </div>
+          <div style={{ fontSize: '0.74rem', color: 'var(--hub-text-dim)', marginTop: 2 }}>
+            Code: {live.id}
+          </div>
         </div>
       </div>
-      <button onClick={onResume} style={{
-        background: 'var(--hub-accent)', color: '#0F1E1A',
-        border: 'none', borderRadius: 10, padding: '10px 16px',
-        fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', flexShrink: 0,
-      }}>
-        Resume
-      </button>
-      <button onClick={onDismiss} aria-label="Dismiss" style={{
-        background: 'transparent', border: 'none',
-        color: 'var(--hub-text-dim)', fontSize: '1.1rem', cursor: 'pointer',
-        padding: '6px 8px', flexShrink: 0,
-      }}>
-        ✕
-      </button>
+      <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+        <button onClick={onResume} style={{
+          flex: 1,
+          background: 'var(--hub-accent)', color: '#0F1E1A',
+          border: 'none', borderRadius: 10, padding: '10px 16px',
+          fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer',
+        }}>
+          Resume
+        </button>
+        <button onClick={onEnd} style={{
+          flex: 1,
+          background: 'transparent', color: 'var(--hub-text-dim)',
+          border: '1px solid var(--hub-border-strong)', borderRadius: 10,
+          padding: '10px 16px', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer',
+        }}>
+          End round
+        </button>
+      </div>
     </div>
   );
 }
@@ -4413,6 +4418,22 @@ function App() {
     setScreen('round');
   };
 
+  // Permanently end a recoverable live round so the banner stops surfacing.
+  // Writes isComplete + isLive=false to live_rounds/{id} — LiveViewer already
+  // handles isComplete=true by showing the final-round summary to spectators.
+  const handleEndRecoverableLive = async (lr) => {
+    if (!window.confirm(`End the live round at ${lr.courseName || 'this course'}? Spectators will see the round summary; you won't be able to resume it.`)) return;
+    setRecoverableLive(null);
+    setRecoverableLiveDismissed(true);
+    if (db) {
+      try {
+        await setDoc(doc(db, 'live_rounds', lr.id),
+          { isLive: false, isComplete: true, lastUpdate: Date.now() },
+          { merge: true });
+      } catch (e) { console.error('Failed to end live round:', e); }
+    }
+  };
+
   const handleRecoverRound = async (newRound) => {
     if (db) {
       try { await setDoc(doc(db, 'rounds', newRound.id), newRound); } catch (e) { console.error(e); }
@@ -4567,7 +4588,7 @@ function App() {
             <ResumeLiveBanner
               live={recoverableLive}
               onResume={() => handleResumeLive(recoverableLive)}
-              onDismiss={() => { setRecoverableLive(null); setRecoverableLiveDismissed(true); }}
+              onEnd={() => handleEndRecoverableLive(recoverableLive)}
             />
           )}
           <HomeHub onNavigate={goHub} />
