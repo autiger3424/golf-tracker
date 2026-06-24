@@ -593,6 +593,12 @@ function loadActiveRoundSnapshot() {
       localStorage.removeItem(ACTIVE_ROUND_KEY);
       return null;
     }
+    // Round was already saved to history — no need to keep auto-restoring it
+    // onto the Round screen every time the app opens. Drop the snapshot.
+    if (snap.roundSaved) {
+      localStorage.removeItem(ACTIVE_ROUND_KEY);
+      return null;
+    }
     return snap;
   } catch { return null; }
 }
