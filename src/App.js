@@ -240,7 +240,7 @@ function ResumeLiveBanner({ live, onResume, onEnd }) {
           border: '1px solid var(--hub-border-strong)', borderRadius: 10,
           padding: '10px 16px', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer',
         }}>
-          End round
+          Delete
         </button>
       </div>
     </div>
@@ -3210,6 +3210,7 @@ function RecoverLiveRounds({ onRecover }) {
   const [liveRounds, setLiveRounds] = React.useState([]);
   const [loading, setLoading] = React.useState(false);
   const [recovering, setRecovering] = React.useState(null);
+  const [deleting, setDeleting] = React.useState(null);
 
   const fetchLive = async () => {
     if (!db) return;
@@ -3224,6 +3225,17 @@ function RecoverLiveRounds({ onRecover }) {
   };
 
   const handleOpen = () => { setOpen(true); fetchLive(); };
+
+  const handleDelete = async (lr) => {
+    if (!db) return;
+    if (!window.confirm(`Delete the live round at ${lr.courseName || 'this course'}? This removes the broadcast permanently.`)) return;
+    setDeleting(lr.id);
+    try {
+      await deleteDoc(doc(db, 'live_rounds', lr.id));
+      setLiveRounds(prev => prev.filter(r => r.id !== lr.id));
+    } catch (e) { console.error('Failed to delete live round:', e); }
+    setDeleting(null);
+  };
 
   const handleRecover = async (lr) => {
     setRecovering(lr.id);
@@ -3296,11 +3308,19 @@ function RecoverLiveRounds({ onRecover }) {
                       Score {st.totalScore} ({scoreDiffLabel(st.scoreDiff)}) · {st.holesPlayed} holes
                     </div>}
                   </div>
-                  <button className="btn btn-primary btn-sm"
-                    disabled={recovering === lr.id}
-                    onClick={() => handleRecover(lr)}>
-                    {recovering === lr.id ? '…' : 'Resume →'}
-                  </button>
+                  <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                    <button className="btn btn-primary btn-sm"
+                      disabled={recovering === lr.id || deleting === lr.id}
+                      onClick={() => handleRecover(lr)}>
+                      {recovering === lr.id ? '…' : 'Resume →'}
+                    </button>
+                    <button className="btn btn-delete btn-sm"
+                      disabled={deleting === lr.id || recovering === lr.id}
+                      onClick={() => handleDelete(lr)}
+                      aria-label="Delete this live round">
+                      {deleting === lr.id ? '…' : 'Delete'}
+                    </button>
+                  </div>
                 </div>
               </div>
             );
@@ -4419,18 +4439,17 @@ function App() {
   };
 
   // Permanently end a recoverable live round so the banner stops surfacing.
-  // Writes isComplete + isLive=false to live_rounds/{id} — LiveViewer already
-  // handles isComplete=true by showing the final-round summary to spectators.
-  const handleEndRecoverableLive = async (lr) => {
-    if (!window.confirm(`End the live round at ${lr.courseName || 'this course'}? Spectators will see the round summary; you won't be able to resume it.`)) return;
+  // Fully removes a recoverable live round so the banner stops surfacing it
+  // and the broadcast link stops resolving. Use this for finished or stale
+  // rounds you don't want to keep around.
+  const handleDeleteRecoverableLive = async (lr) => {
+    if (!window.confirm(`Delete the live round at ${lr.courseName || 'this course'}? This removes the broadcast permanently.`)) return;
     setRecoverableLive(null);
     setRecoverableLiveDismissed(true);
     if (db) {
       try {
-        await setDoc(doc(db, 'live_rounds', lr.id),
-          { isLive: false, isComplete: true, lastUpdate: Date.now() },
-          { merge: true });
-      } catch (e) { console.error('Failed to end live round:', e); }
+        await deleteDoc(doc(db, 'live_rounds', lr.id));
+      } catch (e) { console.error('Failed to delete live round:', e); }
     }
   };
 
@@ -4588,7 +4607,7 @@ function App() {
             <ResumeLiveBanner
               live={recoverableLive}
               onResume={() => handleResumeLive(recoverableLive)}
-              onEnd={() => handleEndRecoverableLive(recoverableLive)}
+              onEnd={() => handleDeleteRecoverableLive(recoverableLive)}
             />
           )}
           <HomeHub onNavigate={goHub} />
