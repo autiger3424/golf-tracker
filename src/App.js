@@ -22,6 +22,7 @@ const SCREEN_HASHES = {
   setup: '/enter-round',
   teeSelect: '/tee-select',
   round: '/round',
+  roundStats: '/round/stats',
   analysis: '/analysis',
   history: '/analytics',
   historyAnalysis: '/analytics/round',
@@ -42,6 +43,7 @@ const PARENT_SCREEN = {
   setup: 'home',
   teeSelect: 'setup',
   round: 'home',
+  roundStats: 'round',
   analysis: 'round',
   history: 'home',
   historyAnalysis: 'history',
@@ -59,6 +61,7 @@ const SCREEN_TITLES = {
   setup: 'Enter Round',
   teeSelect: 'Select Tee',
   round: 'Round',
+  roundStats: 'Mid-Round Stats',
   analysis: 'Round Analysis',
   history: 'Analytics',
   historyAnalysis: 'Round Detail',
@@ -1799,7 +1802,7 @@ function OpponentsPanel({ playerName, opponents, holes, onAdd, onRemove, onUpdat
   );
 }
 
-function RoundScreen({ round, onUpdateHole, onAddOpponent, onRemoveOpponent, onUpdateOpponent, onUpdateOpponentScore, onFinish, onSave, onSaveHole, saved, isManual, isLive, liveId, onToggleLive, showSharePanel, onShowShare, onHideShare, liveStatus, liveSyncing }) {
+function RoundScreen({ round, onUpdateHole, onAddOpponent, onRemoveOpponent, onUpdateOpponent, onUpdateOpponentScore, onFinish, onSave, onSaveHole, saved, isManual, isLive, liveId, onToggleLive, showSharePanel, onShowShare, onHideShare, liveStatus, liveSyncing, onViewStats }) {
   const stats = calcStats(round.holes);
   const [copied, setCopied] = React.useState(false);
 
@@ -1896,18 +1899,34 @@ function RoundScreen({ round, onUpdateHole, onAddOpponent, onRemoveOpponent, onU
               )}
             </div>
           )}
-          <button
-            onClick={onToggleLive}
-            style={{
-              background: isLive ? 'rgba(255,77,79,0.15)' : 'rgba(76,175,80,0.12)',
-              border: `1px solid ${isLive ? '#ff4d4f' : 'var(--accent)'}`,
-              color: isLive ? '#ff4d4f' : 'var(--accent)',
-              borderRadius: 20, padding: '4px 10px',
-              fontSize: 11, fontWeight: 700, cursor: 'pointer',
-            }}
-          >
-            {isLive ? '⏹ Stop Live' : '📡 Go Live'}
-          </button>
+          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+            {onViewStats && (
+              <button
+                onClick={onViewStats}
+                style={{
+                  background: 'rgba(30, 58, 95, 0.08)',
+                  border: '1px solid var(--blue)',
+                  color: 'var(--blue)',
+                  borderRadius: 20, padding: '4px 10px',
+                  fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                }}
+              >
+                📊 Stats
+              </button>
+            )}
+            <button
+              onClick={onToggleLive}
+              style={{
+                background: isLive ? 'rgba(255,77,79,0.15)' : 'rgba(76,175,80,0.12)',
+                border: `1px solid ${isLive ? '#ff4d4f' : 'var(--accent)'}`,
+                color: isLive ? '#ff4d4f' : 'var(--accent)',
+                borderRadius: 20, padding: '4px 10px',
+                fontSize: 11, fontWeight: 700, cursor: 'pointer',
+              }}
+            >
+              {isLive ? '⏹ Stop Live' : '📡 Go Live'}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -2522,7 +2541,7 @@ function RecapPlayer({ items, onClose }) {
 }
 
 // ============================================================
-function AnalysisScreen({ round, onSave, onNewRound, saved, onBack }) {
+function AnalysisScreen({ round, onSave, onNewRound, saved, onBack, inProgress }) {
   const stats = calcStats(round.holes);
 
   React.useEffect(() => {
@@ -2741,16 +2760,24 @@ function AnalysisScreen({ round, onSave, onNewRound, saved, onBack }) {
 
       <HoleNotesSection holes={round.holes} />
 
-      <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
-        {!saved ? (
-          <button className="btn btn-primary" onClick={onSave} style={{ flex: 1 }}>💾 Save Round</button>
-        ) : (
-          <div style={{ flex: 1, textAlign: 'center', padding: 13, color: 'var(--accent)', fontWeight: 600 }}>
-            ✓ Round Saved
-          </div>
-        )}
-        <button className="btn btn-secondary" onClick={onNewRound} style={{ flex: 1 }}>New Round</button>
-      </div>
+      {inProgress ? (
+        <div style={{ marginTop: 8 }}>
+          <button className="btn btn-secondary" onClick={onBack} style={{ width: '100%' }}>
+            ← Back to Round
+          </button>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+          {!saved ? (
+            <button className="btn btn-primary" onClick={onSave} style={{ flex: 1 }}>💾 Save Round</button>
+          ) : (
+            <div style={{ flex: 1, textAlign: 'center', padding: 13, color: 'var(--accent)', fontWeight: 600 }}>
+              ✓ Round Saved
+            </div>
+          )}
+          <button className="btn btn-secondary" onClick={onNewRound} style={{ flex: 1 }}>New Round</button>
+        </div>
+      )}
 
       {/* Google Calendar "Add to Calendar" button — archived
       {saved && hasCalToken && (
@@ -4678,6 +4705,17 @@ function App() {
           onHideShare={() => setShowSharePanel(false)}
           liveStatus={liveStatus}
           liveSyncing={liveSyncing}
+          onViewStats={() => setScreen('roundStats')}
+        />
+      )}
+      {screen === 'roundStats' && currentRound && (
+        <AnalysisScreen
+          round={currentRound}
+          onSave={handleSaveRound}
+          onNewRound={handleNewRound}
+          saved={roundSaved}
+          onBack={() => setScreen('round')}
+          inProgress
         />
       )}
       {screen === 'analysis' && currentRound && (
