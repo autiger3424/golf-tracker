@@ -2541,12 +2541,66 @@ function RecapPlayer({ items, onClose }) {
 }
 
 // ============================================================
+function buildRoundShareText(round, stats) {
+  const { totalScore, totalPar, scoreDiff, fwPct, girPct, sumPutts, breakdown, holesPlayed, front9, back9, penaltyCount } = stats;
+  const diff = scoreDiff === 0 ? 'E' : scoreDiffLabel(scoreDiff);
+  const lines = [];
+  lines.push(`${round.playerName || 'Golf'} — ${round.courseName}${round.tee ? ` (${round.tee})` : ''}`);
+  lines.push(`${formatDate(round.date)} · ${round.roundType === 'competition' ? 'Competition' : 'Practice'}`);
+  lines.push('');
+  lines.push(`Score: ${totalScore} (${diff}) · par ${totalPar} · ${holesPlayed} holes`);
+  if (front9 && back9 && front9.holes >= 9 && back9.holes >= 9) {
+    lines.push(`Front ${front9.score} (${front9.diff === 0 ? 'E' : scoreDiffLabel(front9.diff)}) · Back ${back9.score} (${back9.diff === 0 ? 'E' : scoreDiffLabel(back9.diff)})`);
+  }
+  const statBits = [];
+  if (fwPct !== null) statBits.push(`FW ${fwPct}%`);
+  if (girPct !== null) statBits.push(`GIR ${girPct}%`);
+  if (sumPutts !== null && sumPutts !== undefined) statBits.push(`Putts ${sumPutts}`);
+  if (statBits.length) lines.push(statBits.join(' · '));
+  const bd = [];
+  if (breakdown.eagle) bd.push(`${breakdown.eagle} eagle`);
+  if (breakdown.birdie) bd.push(`${breakdown.birdie} birdie${breakdown.birdie !== 1 ? 's' : ''}`);
+  bd.push(`${breakdown.par} par${breakdown.par !== 1 ? 's' : ''}`);
+  if (breakdown.bogey) bd.push(`${breakdown.bogey} bogey${breakdown.bogey !== 1 ? 's' : ''}`);
+  if (breakdown.double) bd.push(`${breakdown.double} double${breakdown.double !== 1 ? 's' : ''}`);
+  if (breakdown.worse) bd.push(`${breakdown.worse} triple+`);
+  lines.push(bd.join(', '));
+  if (penaltyCount > 0) lines.push(`${penaltyCount} penalt${penaltyCount !== 1 ? 'ies' : 'y'}`);
+  if (round.liveId) {
+    lines.push('');
+    lines.push(`Scorecard: ${window.location.origin}${window.location.pathname}#/live/${round.liveId}`);
+  }
+  return lines.join('\n');
+}
+
 function AnalysisScreen({ round, onSave, onNewRound, saved, onBack, inProgress }) {
   const stats = calcStats(round.holes);
+  const [shareState, setShareState] = React.useState('idle'); // idle | copied | failed
 
   React.useEffect(() => {
     window.scrollTo(0, 0);
   }, [round.id]);
+
+  async function handleShare() {
+    if (!stats) return;
+    const text = buildRoundShareText(round, stats);
+    const title = `${round.playerName || 'Golf'} — ${round.courseName}`;
+    if (navigator.share) {
+      try {
+        await navigator.share({ title, text });
+        return;
+      } catch (err) {
+        if (err && err.name === 'AbortError') return; // user dismissed the sheet
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      setShareState('copied');
+    } catch {
+      setShareState('failed');
+    }
+    setTimeout(() => setShareState('idle'), 2000);
+  }
 
   if (!stats) {
     return (
@@ -2583,7 +2637,19 @@ function AnalysisScreen({ round, onSave, onNewRound, saved, onBack, inProgress }
           ← Back to Analytics
         </button>
       )}
-      <h2 style={{ marginBottom: 14 }}>Round Analysis</h2>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+        <h2 style={{ margin: 0 }}>Round Analysis</h2>
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          onClick={handleShare}
+          aria-label="Share round summary"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+        >
+          <span aria-hidden="true">↗</span>
+          {shareState === 'copied' ? 'Copied' : shareState === 'failed' ? 'Copy failed' : 'Share'}
+        </button>
+      </div>
 
       <div className="score-total-card">
         <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 4 }}>
